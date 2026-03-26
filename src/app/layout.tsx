@@ -5,6 +5,22 @@ export const metadata: Metadata = {
   title: "Pumperly - Energy Route Planner",
   description:
     "Find the cheapest fuel and EV charging stations along your route. Real-time prices, smart detour calculations, and range-aware recommendations.",
+  metadataBase: new URL("https://pumperly.com"),
+  openGraph: {
+    title: "Pumperly - Energy Route Planner",
+    description:
+      "Find the cheapest fuel & EV charging stations along your route. Real-time prices across 36 countries.",
+    url: "https://pumperly.com",
+    siteName: "Pumperly",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pumperly - Energy Route Planner",
+    description:
+      "Find the cheapest fuel & EV charging stations along your route. Real-time prices across 36 countries.",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
