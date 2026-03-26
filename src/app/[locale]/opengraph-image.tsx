@@ -1,11 +1,26 @@
 import { ImageResponse } from "next/og";
+import type { Locale } from "@/lib/i18n";
+import {
+  OG_TRANSLATIONS,
+  SUPPORTED_LOCALES,
+  DEFAULT_LOCALE,
+} from "@/lib/og-translations";
 
-export const runtime = "edge";
-export const alt = "Pumperly - Energy Route Planner";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function Image() {
+export default async function Image({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale: raw } = await params;
+  const locale = (
+    SUPPORTED_LOCALES.includes(raw as Locale) ? raw : DEFAULT_LOCALE
+  ) as Locale;
+
+  const og = OG_TRANSLATIONS[locale];
+
   return new ImageResponse(
     (
       <div
@@ -59,7 +74,7 @@ export default function Image() {
         >
           Pumperly
         </div>
-        {/* Subtitle */}
+        {/* Localized subtitle */}
         <div
           style={{
             fontSize: 28,
@@ -69,7 +84,7 @@ export default function Image() {
             maxWidth: 700,
           }}
         >
-          Find the cheapest fuel &amp; EV charging along your route
+          {og.imageSubtitle}
         </div>
       </div>
     ),
