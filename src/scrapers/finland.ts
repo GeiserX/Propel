@@ -268,9 +268,15 @@ export class FinlandScraper extends BaseScraper {
 
       // Extract station name: the text content after stripping all HTML tags
       // The name appears after the </a> tag in the cell
-      const nameText = stationCell
-        .replace(/<a[^>]*>[\s\S]*?<\/a>/i, "") // remove the map link + icon
-        .replace(/<[^>]+>/g, "")  // strip any remaining HTML
+      let nameText = stationCell
+        .replace(/<a[^>]*>[\s\S]*?<\/a>/i, ""); // remove the map link + icon
+      // Strip HTML tags in a loop to handle nested/malformed tags
+      let prev = "";
+      while (prev !== nameText) {
+        prev = nameText;
+        nameText = nameText.replace(/<[^>]+>/g, "");
+      }
+      nameText = nameText
         .replace(/&nbsp;/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -325,8 +331,14 @@ export class FinlandScraper extends BaseScraper {
    *   ""                    -> null
    */
   private extractPrice(cellHtml: string): number | null {
-    const text = cellHtml
-      .replace(/<[^>]+>/g, "") // strip HTML tags
+    // Strip HTML tags in a loop to handle nested/malformed tags
+    let text = cellHtml;
+    let prev = "";
+    while (prev !== text) {
+      prev = text;
+      text = text.replace(/<[^>]+>/g, "");
+    }
+    text = text
       .replace(/&nbsp;/g, " ")
       .replace(/^\*/, "")       // remove leading asterisk (V-Power marker)
       .trim();
