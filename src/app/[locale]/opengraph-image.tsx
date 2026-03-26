@@ -38,26 +38,29 @@ export default async function Image({
         {/* Icon */}
         <div
           style={{
-            width: 120,
-            height: 120,
-            borderRadius: 28,
+            width: 160,
+            height: 160,
+            borderRadius: 38,
             background: "linear-gradient(135deg, #34d399, #22d3ee)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            marginBottom: 32,
+            marginBottom: 36,
           }}
         >
           <svg
-            width="72"
-            height="72"
+            width="100"
+            height="100"
             viewBox="0 0 32 32"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
             <path
-              d="M19.5 5L11 18h6l-3 9L22 14h-6l3.5-9z"
+              d="M18.5 3L9 17.5h7l-3.5 11.5L24 13.5h-7L18.5 3z"
               fill="#0c111b"
+              stroke="#0c111b"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
             />
           </svg>
         </div>
