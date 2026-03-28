@@ -11,14 +11,10 @@
 </p>
 
 <p align="center">
-  <a href="https://pumperly.com"><img src="https://img.shields.io/badge/Website-pumperly.com-22c55e?style=flat-square" alt="Website"></a>
-  <a href="https://github.com/GeiserX/pumperly/stargazers"><img src="https://img.shields.io/github/stars/GeiserX/pumperly?style=flat-square&label=⭐" alt="Stars"></a>
-  <a href="https://github.com/GeiserX/pumperly/commits/main"><img src="https://img.shields.io/github/last-commit/GeiserX/pumperly?style=flat-square" alt="Last Commit"></a>
-  <a href="https://github.com/GeiserX/pumperly"><img src="https://img.shields.io/github/languages/top/GeiserX/pumperly?style=flat-square" alt="Language"></a>
+  <a href="https://pumperly.com"><img src="https://img.shields.io/badge/Pumperly-pumperly.com-FF6B35?style=flat-square&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHBhdGggZmlsbD0id2hpdGUiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTcgMGgxOGMzLjg3IDAgNyAzLjEzIDcgN3YxOGMwIDMuODctMy4xMyA3LTcgN0g3Yy0zLjg3IDAtNy0zLjEzLTctN1Y3QzAgMy4xMyAzLjEzIDAgNyAwek0yMiAyTDcgMTdoOWwtNiAxM0wyNSAxM2gtOXoiLz48L3N2Zz4=&logoColor=white" alt="Pumperly"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/GeiserX/pumperly?style=flat-square" alt="License"></a>
   <a href="https://hub.docker.com/r/drumsergio/pumperly"><img src="https://img.shields.io/docker/pulls/drumsergio/pumperly?style=flat-square&logo=docker&label=Docker%20Pulls" alt="Docker Pulls"></a>
-  <a href="https://transport.ec.europa.eu/transport-themes/intelligent-transport-systems_en"><img src="https://img.shields.io/badge/ITS-003399?style=flat-square" alt="ITS"></a>
-  <a href="https://github.com/GeiserX/awesome-europe"><img src="https://awesome.re/mentioned-badge-flat.svg" alt="Mentioned in Awesome Europe"></a>
+  <a href="https://github.com/GeiserX/awesome-europe#readme"><img src="https://img.shields.io/badge/listed%20on-awesome--europe-ffcc00?style=flat-square&logo=europeanunion&logoColor=ffcc00&labelColor=003399" alt="listed on awesome-europe"></a>
 </p>
 
 <br>
