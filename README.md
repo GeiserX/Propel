@@ -12,9 +12,13 @@
 
 <p align="center">
   <a href="https://pumperly.com"><img src="https://img.shields.io/badge/Website-pumperly.com-22c55e?style=flat-square" alt="Website"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License"></a>
-  <a href="https://github.com/GeiserX/pumperly"><img src="https://img.shields.io/github/stars/GeiserX/pumperly?style=flat-square&logo=github" alt="GitHub Stars"></a>
+  <a href="https://github.com/GeiserX/pumperly/stargazers"><img src="https://img.shields.io/github/stars/GeiserX/pumperly?style=flat-square&label=⭐" alt="Stars"></a>
+  <a href="https://github.com/GeiserX/pumperly/commits/main"><img src="https://img.shields.io/github/last-commit/GeiserX/pumperly?style=flat-square" alt="Last Commit"></a>
+  <a href="https://github.com/GeiserX/pumperly"><img src="https://img.shields.io/github/languages/top/GeiserX/pumperly?style=flat-square" alt="Language"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/GeiserX/pumperly?style=flat-square" alt="License"></a>
   <a href="https://hub.docker.com/r/drumsergio/pumperly"><img src="https://img.shields.io/docker/pulls/drumsergio/pumperly?style=flat-square&logo=docker&label=Docker%20Pulls" alt="Docker Pulls"></a>
+  <a href="https://transport.ec.europa.eu/transport-themes/intelligent-transport-systems_en"><img src="https://img.shields.io/badge/ITS-003399?style=flat-square" alt="ITS"></a>
+  <a href="https://github.com/GeiserX/awesome-europe"><img src="https://awesome.re/mentioned-badge-flat.svg" alt="Mentioned in Awesome Europe"></a>
 </p>
 
 <br>
