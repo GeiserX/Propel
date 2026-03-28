@@ -20,6 +20,10 @@ interface AutocompleteInputProps {
   mapCenter?: [number, number];
   /** Render without border/bg — parent provides the container */
   bare?: boolean;
+  /** Show a "My location" option when focused; label is the translated text */
+  locationLabel?: string;
+  /** Called when user clicks the "My location" option */
+  onLocationSelect?: () => void;
 }
 
 export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputProps>(function AutocompleteInput({
@@ -33,10 +37,13 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
   onBlur,
   mapCenter,
   bare,
+  locationLabel,
+  onLocationSelect,
 }, ref) {
   const [results, setResults] = useState<PhotonResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [isFocused, setIsFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const internalInputRef = useRef<HTMLInputElement>(null);
@@ -172,16 +179,36 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onFocus={() => {
+          setIsFocused(true);
           if (results.length > 0) setIsOpen(true);
           onFocus?.();
         }}
-        onBlur={onBlur}
+        onBlur={() => {
+          setIsFocused(false);
+          onBlur?.();
+        }}
         placeholder={placeholder}
         className={inputClassName}
       />
 
-      {isOpen && results.length > 0 && (
+      {/* Location option shown when focused with no/short input; also prepended to results */}
+      {(isOpen && results.length > 0) || (isFocused && locationLabel && onLocationSelect && value.length < 2 && !isOpen) ? (
         <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          {locationLabel && onLocationSelect && (
+            <li
+              className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+              onMouseDown={() => {
+                onLocationSelect();
+                setIsFocused(false);
+              }}
+            >
+              <span className="relative flex h-4 w-4 items-center justify-center">
+                <span className="absolute h-3 w-3 animate-ping rounded-full bg-blue-400/40" />
+                <span className="relative h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />
+              </span>
+              <span className="font-medium">{locationLabel}</span>
+            </li>
+          )}
           {results.map((r, i) => (
             <li
               key={`${r.coordinates[0]}-${r.coordinates[1]}-${i}`}
@@ -200,7 +227,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
       {noResults && !isOpen && value.length >= 2 && (
         <div className="absolute z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 shadow-lg dark:border-gray-700 dark:bg-gray-800">
           No results found

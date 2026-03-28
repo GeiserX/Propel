@@ -76,6 +76,32 @@ export function SearchPanel({
 
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
 
+  // "My location" handler — triggers geolocation and sets as origin
+  const handleLocationSelect = useCallback(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        const label = t("geo.myLocation");
+        setOrigin({ label, coordinates: coords });
+        setOriginText(label);
+        onFlyTo(coords);
+
+        if (phase === "route") {
+          onClearRoute();
+          setDestText("");
+          setDestination(null);
+          setWaypoints([]);
+        }
+
+        setPhase("destination");
+        setTimeout(() => destRef.current?.focus(), 100);
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }, [t, onFlyTo, onClearRoute, phase]);
+
   // Calculate route with current state
   const calculateRoute = useCallback(
     (o: Location, d: Location, wps: WaypointEntry[]) => {
@@ -334,6 +360,8 @@ export function SearchPanel({
             onBlur={handleOriginBlur}
             mapCenter={mapCenter}
             bare
+            locationLabel={t("geo.myLocation")}
+            onLocationSelect={handleLocationSelect}
           />
           {originText && (
             <button
