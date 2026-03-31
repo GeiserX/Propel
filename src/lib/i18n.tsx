@@ -744,20 +744,20 @@ export function I18nProvider({ defaultLocale, children }: { defaultLocale?: Loca
     localStorage.setItem("pumperly-locale", l);
     // Persist choice in cookie so middleware can read it on unprefixed paths
     document.cookie = `pumperly-locale=${l};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
-    // Navigate to the matching [locale] route so URL stays authoritative
+    // Navigate to the matching [locale] route so URL stays authoritative.
+    // Always use /${locale} prefix (including "es") so middleware cookie
+    // isn't required for the immediate navigation to work.
     const path = window.location.pathname;
-    // Strip current locale prefix (e.g. /en/..., /fr/...)
     const localePattern = /^\/([a-z]{2})(\/|$)/;
     const match = path.match(localePattern);
     const rest = match ? path.slice(match[1].length + 1) : path;
-    // "es" is the default locale — no prefix needed
-    const newPath = l === "es" ? (rest || "/") : `/${l}${rest || ""}`;
-    window.location.href = newPath;
+    window.location.href = `/${l}${rest || ""}`;
   }, []);
 
-  // Sync <html lang> with the active locale
+  // Sync <html lang> and ensure cookie exists for middleware (covers fresh visitors)
   useEffect(() => {
     document.documentElement.lang = locale;
+    document.cookie = `pumperly-locale=${locale};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
   }, [locale]);
 
   const t = useCallback((key: string) => {

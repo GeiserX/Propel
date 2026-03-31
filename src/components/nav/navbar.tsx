@@ -123,7 +123,7 @@ export function Navbar({ selectedFuel, onFuelChange, geoState, onGeolocate }: Na
       <nav className="relative z-20 flex shrink-0 items-center justify-between bg-[#0c111b] px-3.5 pt-[env(safe-area-inset-top)] h-[calc(2.75rem+env(safe-area-inset-top))]">
         {/* Left: Logo */}
         <div className="flex items-center gap-1">
-          <a href={locale === "es" ? "/" : `/${locale}`} className="flex items-center gap-0">
+          <a href={`/${locale}`} className="flex items-center gap-0">
             <svg viewBox="0 0 168 32" className="h-6" aria-label="Pumperly">
               <defs>
                 <linearGradient id="plogo" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">

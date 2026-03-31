@@ -62,9 +62,12 @@ function PrivacyContent() {
         <li><strong>Route queries</strong> &mdash; When you plan a route, origin/destination coordinates are sent to our server to compute the route and find nearby stations. We do not log these queries or associate them with any identity.</li>
       </ul>
 
+      <h3>Cookies</h3>
+      <p>We use a single, strictly functional cookie (<code>pumperly-locale</code>) to remember your language preference so the server can render the correct language on future visits. It contains only a two-letter language code (e.g. &quot;en&quot;), expires after one year, and is never shared with third parties.</p>
+
       <h3>Data we do NOT collect</h3>
       <ul>
-        <li>We do not use cookies (no tracking cookies, no analytics cookies, no third-party cookies).</li>
+        <li>We do not use tracking cookies, analytics cookies, or third-party cookies.</li>
         <li>We do not use any analytics services (no Google Analytics, no Meta Pixel, etc.).</li>
         <li>We do not require accounts, logins, or registration.</li>
         <li>We do not collect personal information such as names, emails, or IP addresses for tracking purposes.</li>
@@ -77,7 +80,7 @@ function PrivacyContent() {
       </ul>
 
       <h3>Data retention</h3>
-      <p>We do not store any personal data on our servers. All user preferences are stored locally on your device and can be cleared by clearing your browser data.</p>
+      <p>We do not store any personal data on our servers. User preferences are stored locally on your device (local storage) and in a single functional cookie. Both can be cleared by clearing your browser data.</p>
 
       <h3>Your rights</h3>
       <p>Under GDPR and applicable law, you have the right to access, rectify, and delete your personal data. Since we do not collect personal data, there is nothing to delete. If you have concerns, contact us at support@pumperly.com.</p>

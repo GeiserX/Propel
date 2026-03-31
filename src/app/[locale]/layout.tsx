@@ -73,6 +73,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default function LocaleLayout({ children }: Props) {
-  return children;
+export default async function LocaleLayout({ params, children }: Props) {
+  const { locale: raw } = await params;
+  const locale = (
+    SUPPORTED_LOCALES.includes(raw as Locale) ? raw : DEFAULT_LOCALE
+  ) as Locale;
+
+  return (
+    <>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `document.documentElement.lang="${locale}"`,
+        }}
+      />
+      {children}
+    </>
+  );
 }
