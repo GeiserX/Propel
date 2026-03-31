@@ -51,6 +51,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   const abortRef = useRef<AbortController | null>(null);
   const corridorKmRef = useRef(corridorKm);
   corridorKmRef.current = corridorKm;
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+  const selectedFuelRef = useRef(selectedFuel);
+  selectedFuelRef.current = selectedFuel;
 
   // Per-route corridor stations (with routeFraction)
   const [corridorPerRoute, setCorridorPerRoute] = useState<StationsGeoJSONCollection[]>([]);
@@ -251,16 +255,19 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     }
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
 
-  // Debounced re-fetch when corridor slider changes (300ms after user stops dragging)
+  // Debounced re-fetch when corridor slider changes (300ms after user stops dragging).
+  // Reads routes/fuel from refs so the timer always fires with current values,
+  // and re-runs when routes change so the stale timer is cancelled.
   useEffect(() => {
     if (!routes || routes.length === 0) return;
     if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
     corridorDebounceRef.current = setTimeout(() => {
-      fetchAllRouteStations(selectedFuel, routes);
+      const r = routesRef.current;
+      if (r && r.length > 0) fetchAllRouteStations(selectedFuelRef.current, r);
     }, 300);
     return () => { if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [corridorKm]);
+  }, [corridorKm, routes]);
 
   useEffect(() => {
     return () => {
