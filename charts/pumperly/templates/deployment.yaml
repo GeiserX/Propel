@@ -1,0 +1,266 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pumperly.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "pumperly.webSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.webSelectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or (not .Values.existingSecret) .Values.podAnnotations }}
+      annotations:
+        {{- if not .Values.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pumperly.serviceAccountName" . }}
+      {{- if .Values.waitForDatabase.enabled }}
+      initContainers:
+        - name: wait-for-database
+          image: {{ .Values.waitForDatabase.image | quote }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - >-
+              deadline=$(( $(date +%s) + {{ .Values.waitForDatabase.timeoutSeconds }} ));
+              until nc -z
+              {{- if .Values.postgis.enabled }}
+              {{ include "pumperly.databaseHost" . | quote }}
+              {{- else }}
+              {{ required "Set externalDatabase.host or disable waitForDatabase.enabled when postgis.enabled=false" .Values.externalDatabase.host | quote }}
+              {{- end }}
+              {{ include "pumperly.databasePort" . | quote }}; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "database did not become ready within {{ .Values.waitForDatabase.timeoutSeconds }} seconds";
+                  exit 1;
+                fi;
+                echo "waiting for database";
+                sleep 2;
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+          {{- with .Values.waitForDatabase.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- if .Values.databaseInit.enabled }}
+        - name: prisma-db-push
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - npx prisma db push
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+          {{- with .Values.databaseInit.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- else if .Values.databaseInit.enabled }}
+      initContainers:
+        - name: prisma-db-push
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - npx prisma db push
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+          {{- with .Values.databaseInit.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: DATABASE_URL
+            {{- if .Values.config.defaultCountry }}
+            - name: PUMPERLY_DEFAULT_COUNTRY
+              value: {{ .Values.config.defaultCountry | quote }}
+            {{- end }}
+            {{- if .Values.config.enabledCountries }}
+            - name: PUMPERLY_ENABLED_COUNTRIES
+              value: {{ .Values.config.enabledCountries | quote }}
+            {{- end }}
+            {{- if .Values.config.defaultFuel }}
+            - name: PUMPERLY_DEFAULT_FUEL
+              value: {{ .Values.config.defaultFuel | quote }}
+            {{- end }}
+            {{- if .Values.config.clusterStations }}
+            - name: PUMPERLY_CLUSTER_STATIONS
+              value: {{ .Values.config.clusterStations | quote }}
+            {{- end }}
+            {{- if .Values.config.scrapeIntervalHours }}
+            - name: PUMPERLY_SCRAPE_INTERVAL_HOURS
+              value: {{ .Values.config.scrapeIntervalHours | quote }}
+            {{- end }}
+            {{- if .Values.config.evEnabled }}
+            - name: PUMPERLY_EV_ENABLED
+              value: {{ .Values.config.evEnabled | quote }}
+            {{- end }}
+            {{- if .Values.apiKeys.tankerkoenig }}
+            - name: TANKERKOENIG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: TANKERKOENIG_API_KEY
+            {{- end }}
+            {{- if .Values.apiKeys.openChargeMap }}
+            - name: PUMPERLY_OCM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: PUMPERLY_OCM_API_KEY
+            {{- end }}
+            {{- if .Values.apiKeys.fuelpricesDk }}
+            - name: FUELPRICES_DK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: FUELPRICES_DK_API_KEY
+            {{- end }}
+            {{- if .Values.valhalla.enabled }}
+            - name: VALHALLA_URL
+              value: "http://{{ include "pumperly.valhalla.fullname" . }}:8002"
+            {{- else if .Values.externalServices.valhallaUrl }}
+            - name: VALHALLA_URL
+              value: {{ .Values.externalServices.valhallaUrl | quote }}
+            {{- end }}
+            {{- if .Values.photon.enabled }}
+            - name: PHOTON_URL
+              value: "http://{{ include "pumperly.photon.fullname" . }}:2322"
+            {{- else if .Values.externalServices.photonUrl }}
+            - name: PHOTON_URL
+              value: {{ .Values.externalServices.photonUrl | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.httpGet.path }}
+              port: {{ .Values.startupProbe.httpGet.port }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

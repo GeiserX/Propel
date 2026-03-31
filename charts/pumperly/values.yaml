@@ -1,0 +1,223 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: drumsergio/pumperly
+  pullPolicy: IfNotPresent
+  tag: "1.2.0"
+
+imagePullSecrets: []
+
+replicaCount: 1
+
+deploymentStrategy:
+  type: Recreate
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pumperly.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+config:
+  defaultCountry: "ES"
+  enabledCountries: ""
+  defaultFuel: ""
+  clusterStations: "true"
+  scrapeIntervalHours: ""
+  evEnabled: ""
+
+apiKeys:
+  tankerkoenig: ""
+  openChargeMap: ""
+  fuelpricesDk: ""
+
+existingSecret: ""
+
+externalServices:
+  valhallaUrl: ""
+  photonUrl: ""
+
+postgis:
+  enabled: true
+  image:
+    repository: postgis/postgis
+    tag: "17-3.4-alpine"
+  auth:
+    username: pumperly
+    password: ""
+    database: pumperly
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 4Gi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+externalDatabase:
+  url: ""
+  host: ""
+  port: 5432
+  user: ""
+  password: ""
+  database: ""
+
+waitForDatabase:
+  enabled: true
+  image: busybox:1.36.1
+  timeoutSeconds: 300
+  resources: {}
+
+databaseInit:
+  enabled: true
+  resources: {}
+
+valhalla:
+  enabled: false
+  image:
+    repository: ghcr.io/gis-ops/docker-valhalla/valhalla
+    tag: "3.5.1"
+  tileUrls: "https://download.geofabrik.de/europe/spain-latest.osm.pbf"
+  serverThreads: "4"
+  buildAdmins: "True"
+  buildTimeZones: "True"
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 100Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      memory: 24Gi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+photon:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+  command: []
+  args: []
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 300Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 8Gi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+startupProbe:
+  enabled: true
+  httpGet:
+    path: /api/config
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /api/config
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /api/config
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+podSecurityContext:
+  fsGroup: 1001
+  runAsNonRoot: true
+  runAsUser: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+podAnnotations: {}
+podLabels: {}
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

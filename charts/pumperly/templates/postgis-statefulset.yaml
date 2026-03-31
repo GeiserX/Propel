@@ -1,0 +1,123 @@
+{{- if .Values.postgis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pumperly.postgis.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgis
+spec:
+  serviceName: {{ include "pumperly.postgis.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "pumperly.postgis.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.postgis.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgis
+        {{- with .Values.postgis.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.postgis.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgis
+          image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          {{- with .Values.postgis.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: POSTGRES_DB
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgis.auth.username }}
+                - -d
+                - {{ .Values.postgis.auth.database }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgis.auth.username }}
+                - -d
+                - {{ .Values.postgis.auth.database }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- if .Values.postgis.persistence.enabled }}
+          volumeMounts:
+            - name: postgis-data
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+          resources:
+            {{- toYaml .Values.postgis.resources | nindent 12 }}
+      {{- with .Values.postgis.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.postgis.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgis-data
+      spec:
+        accessModes:
+          {{- toYaml .Values.postgis.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.postgis.persistence.size }}
+        {{- if .Values.postgis.persistence.storageClass }}
+        storageClassName: {{ .Values.postgis.persistence.storageClass }}
+        {{- end }}
+  {{- end }}
+{{- end }}

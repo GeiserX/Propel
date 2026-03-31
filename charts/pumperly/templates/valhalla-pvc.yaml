@@ -1,0 +1,18 @@
+{{- if and .Values.valhalla.enabled .Values.valhalla.persistence.enabled (not .Values.valhalla.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pumperly.valhalla.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valhalla
+spec:
+  accessModes:
+    {{- toYaml .Values.valhalla.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.valhalla.persistence.size }}
+  {{- if .Values.valhalla.persistence.storageClass }}
+  storageClassName: {{ .Values.valhalla.persistence.storageClass }}
+  {{- end }}
+{{- end }}

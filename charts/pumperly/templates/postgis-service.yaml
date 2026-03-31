@@ -1,0 +1,18 @@
+{{- if .Values.postgis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pumperly.postgis.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "pumperly.postgis.selectorLabels" . | nindent 4 }}
+{{- end }}

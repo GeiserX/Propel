@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "pumperly.fullname" . }}-test-connection"
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  containers:
+    - name: wget
+      image: busybox:1.36.1
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - wget --spider --quiet "http://{{ include "pumperly.fullname" . }}:{{ .Values.service.port }}/api/config"
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 65534
+  restartPolicy: Never

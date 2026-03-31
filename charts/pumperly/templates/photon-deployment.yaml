@@ -1,0 +1,98 @@
+{{- if .Values.photon.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pumperly.photon.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: photon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pumperly.photon.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.photon.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: photon
+        {{- with .Values.photon.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.photon.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: photon
+          image: "{{ required "Set photon.image.repository when photon.enabled=true" .Values.photon.image.repository }}:{{ required "Set photon.image.tag when photon.enabled=true" .Values.photon.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          {{- with .Values.photon.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.photon.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.photon.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 2322
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api?q=test
+              port: http
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /api?q=test
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+          {{- if .Values.photon.persistence.enabled }}
+          volumeMounts:
+            - name: photon-data
+              mountPath: /photon/photon_data
+          {{- end }}
+          resources:
+            {{- toYaml .Values.photon.resources | nindent 12 }}
+      {{- if .Values.photon.persistence.enabled }}
+      volumes:
+        - name: photon-data
+          persistentVolumeClaim:
+            claimName: {{ default (include "pumperly.photon.fullname" .) .Values.photon.persistence.existingClaim }}
+      {{- end }}
+      {{- with .Values.photon.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

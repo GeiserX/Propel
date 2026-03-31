@@ -1,0 +1,55 @@
+Pumperly has been deployed successfully!
+
+1. To access the Pumperly UI, follow these instructions:
+
+{{- if .Values.ingress.enabled }}
+   The Pumperly UI is accessible at:
+
+   {{- range .Values.ingress.hosts }}
+     http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ (index .paths 0).path }}
+   {{- end }}
+{{- else }}
+   NOTE: The ingress is disabled. Use port-forwarding to access the UI:
+
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "pumperly.fullname" . }} 3000:{{ .Values.service.port }}
+
+   Then access the UI at: http://127.0.0.1:3000/
+{{- end }}
+
+{{- if .Values.postgis.enabled }}
+2. PostGIS is running as a StatefulSet with the postgis/postgis image (spatial extensions included).
+{{- else }}
+2. PostGIS is disabled. The chart expects an external database via existingSecret or externalDatabase values.
+{{- end }}
+{{- if .Values.databaseInit.enabled }}
+   Prisma schema sync is enabled through an initContainer on the web Deployment.
+{{- end }}
+
+{{- if .Values.valhalla.enabled }}
+
+3. Valhalla routing engine is ENABLED.
+   - First startup will download and build routing tiles. This can take hours and requires ~15-24GB RAM.
+   - Tile URLs: {{ .Values.valhalla.tileUrls }}
+   - Once tiles are built, subsequent restarts are fast (tiles persist on the PVC).
+{{- else }}
+
+3. Valhalla routing engine is DISABLED. Enable it with:
+     --set valhalla.enabled=true
+{{- end }}
+
+{{- if .Values.photon.enabled }}
+
+4. Photon geocoder is ENABLED.
+   NOTE: Photon requires a working image plus command/args supplied in values.
+   The chart will not bootstrap Photon automatically for you.
+   See: https://github.com/komoot/photon
+{{- else }}
+
+4. Photon geocoder is DISABLED. Enable it with:
+     --set photon.enabled=true
+   NOTE: Photon requires a prepared image/entrypoint and large persistent storage. See chart documentation.
+{{- end }}
+
+5. Scaling note:
+   Keep replicaCount=1 unless you intentionally disable or externalize scraping.
+   Pumperly starts in-process scrapers inside the web container.

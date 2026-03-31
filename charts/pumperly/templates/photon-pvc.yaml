@@ -1,0 +1,18 @@
+{{- if and .Values.photon.enabled .Values.photon.persistence.enabled (not .Values.photon.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pumperly.photon.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: photon
+spec:
+  accessModes:
+    {{- toYaml .Values.photon.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.photon.persistence.size }}
+  {{- if .Values.photon.persistence.storageClass }}
+  storageClassName: {{ .Values.photon.persistence.storageClass }}
+  {{- end }}
+{{- end }}
