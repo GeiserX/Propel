@@ -1,2 +1,31 @@
 apiVersion: v1
-entries: []
+entries:
+  pumperly:
+  - annotations:
+      category: Maps
+    apiVersion: v2
+    appVersion: 1.2.2
+    created: "2026-04-01T00:56:40.139802+02:00"
+    description: A Helm chart for Pumperly - Open-source fuel and EV route planner
+    digest: b076f28880d13beb19432959cefc602db811e5dd413d34768d35a328879afff7
+    home: https://pumperly.com
+    keywords:
+    - pumperly
+    - fuel
+    - ev
+    - route-planner
+    - maps
+    - postgis
+    - self-hosted
+    kubeVersion: '>=1.21.0-0'
+    maintainers:
+    - email: acsdesk@protonmail.com
+      name: Sergio Fernandez
+    name: pumperly
+    sources:
+    - https://github.com/GeiserX/Pumperly
+    type: application
+    urls:
+    - https://github.com/GeiserX/Pumperly/releases/download/pumperly-0.1.0/pumperly-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-04-01T00:56:40.137684+02:00"
