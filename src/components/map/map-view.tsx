@@ -255,19 +255,20 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     }
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
 
-  // Debounced re-fetch when corridor slider changes (300ms after user stops dragging).
-  // Reads routes/fuel from refs so the timer always fires with current values,
-  // and re-runs when routes change so the stale timer is cancelled.
+  // Debounced re-fetch when corridor width changes (300ms after user stops dragging).
+  // Only triggers on corridorKm changes — route changes are handled by the effect above.
+  // Reads routes/fuel from refs so the timer always fires with current values.
   useEffect(() => {
-    if (!routes || routes.length === 0) return;
+    const r = routesRef.current;
+    if (!r || r.length === 0) return;
     if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
     corridorDebounceRef.current = setTimeout(() => {
-      const r = routesRef.current;
-      if (r && r.length > 0) fetchAllRouteStations(selectedFuelRef.current, r);
+      const r2 = routesRef.current;
+      if (r2 && r2.length > 0) fetchAllRouteStations(selectedFuelRef.current, r2);
     }, 300);
     return () => { if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [corridorKm, routes]);
+  }, [corridorKm]);
 
   useEffect(() => {
     return () => {

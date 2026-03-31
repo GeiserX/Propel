@@ -29,11 +29,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const languages: Record<string, string> = {};
   for (const l of SUPPORTED_LOCALES) {
-    const href =
-      l === DEFAULT_LOCALE
-        ? "https://pumperly.com"
-        : `https://pumperly.com/${l}`;
-    languages[l] = href;
+    languages[l] = `https://pumperly.com/${l}`;
   }
   languages["x-default"] = "https://pumperly.com";
 
@@ -42,19 +38,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: og.description,
     metadataBase: new URL("https://pumperly.com"),
     alternates: {
-      canonical:
-        locale === DEFAULT_LOCALE
-          ? "https://pumperly.com"
-          : `https://pumperly.com/${locale}`,
+      canonical: `https://pumperly.com/${locale}`,
       languages,
     },
     openGraph: {
       title: og.title,
       description: og.description,
-      url:
-        locale === DEFAULT_LOCALE
-          ? "https://pumperly.com"
-          : `https://pumperly.com/${locale}`,
+      url: `https://pumperly.com/${locale}`,
       siteName: "Pumperly",
       type: "website",
       locale: og.ogLocale,
@@ -79,14 +69,5 @@ export default async function LocaleLayout({ params, children }: Props) {
     SUPPORTED_LOCALES.includes(raw as Locale) ? raw : DEFAULT_LOCALE
   ) as Locale;
 
-  return (
-    <>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `document.documentElement.lang="${locale}"`,
-        }}
-      />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
