@@ -1,4 +1,5 @@
 import type { Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -8,13 +9,16 @@ export const viewport: Viewport = {
   themeColor: "#0c111b",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const h = await headers();
+  const lang = h.get("x-pumperly-locale") || "es";
+
   return (
-    <html suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
