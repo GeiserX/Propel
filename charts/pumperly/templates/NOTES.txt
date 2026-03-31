@@ -1,0 +1,45 @@
+Pumperly has been deployed successfully!
+
+1. To access the Pumperly UI, follow these instructions:
+
+{{- if .Values.ingress.enabled }}
+   The Pumperly UI is accessible at:
+
+   {{- range .Values.ingress.hosts }}
+     http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ (index .paths 0).path }}
+   {{- end }}
+{{- else }}
+   NOTE: The ingress is disabled. Use port-forwarding to access the UI:
+
+     kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "pumperly.fullname" . }} 3000:{{ .Values.service.port }}
+
+   Then access the UI at: http://127.0.0.1:3000/
+{{- end }}
+
+2. PostGIS is running as a StatefulSet with the postgis/postgis image (spatial extensions included).
+
+{{- if .Values.valhalla.enabled }}
+
+3. Valhalla routing engine is ENABLED.
+   - First startup will download and build routing tiles. This can take hours and requires ~15-24GB RAM.
+   - Tile URLs: {{ .Values.valhalla.tileUrls }}
+   - Once tiles are built, subsequent restarts are fast (tiles persist on the PVC).
+{{- else }}
+
+3. Valhalla routing engine is DISABLED. Enable it with:
+     --set valhalla.enabled=true
+{{- end }}
+
+{{- if .Values.photon.enabled }}
+
+4. Photon geocoder is ENABLED.
+   NOTE: Photon requires manual setup in v0.1.0. The chart creates skeleton resources
+   (Deployment, Service, PVC) but you must provide a custom image or ConfigMap with the
+   entrypoint script that downloads the Photon JAR and Nominatim data.
+   See: https://github.com/komoot/photon
+{{- else }}
+
+4. Photon geocoder is DISABLED. Enable it with:
+     --set photon.enabled=true
+   NOTE: Photon requires ~250GB disk and manual setup. See chart documentation.
+{{- end }}

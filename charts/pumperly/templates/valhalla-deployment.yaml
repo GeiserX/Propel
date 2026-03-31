@@ -1,0 +1,68 @@
+{{- if .Values.valhalla.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pumperly.valhalla.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valhalla
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pumperly.valhalla.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.valhalla.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: valhalla
+    spec:
+      containers:
+        - name: valhalla
+          image: "{{ .Values.valhalla.image.repository }}:{{ .Values.valhalla.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: tile_urls
+              value: {{ .Values.valhalla.tileUrls | quote }}
+            - name: server_threads
+              value: {{ .Values.valhalla.serverThreads | quote }}
+            - name: build_admins
+              value: {{ .Values.valhalla.buildAdmins | quote }}
+            - name: build_time_zones
+              value: {{ .Values.valhalla.buildTimeZones | quote }}
+          ports:
+            - name: http
+              containerPort: 8002
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
+          {{- if .Values.valhalla.persistence.enabled }}
+          volumeMounts:
+            - name: valhalla-data
+              mountPath: /custom_files
+          {{- end }}
+          resources:
+            {{- toYaml .Values.valhalla.resources | nindent 12 }}
+      {{- if .Values.valhalla.persistence.enabled }}
+      volumes:
+        - name: valhalla-data
+          persistentVolumeClaim:
+            claimName: {{ include "pumperly.valhalla.fullname" . }}
+      {{- end }}
+{{- end }}

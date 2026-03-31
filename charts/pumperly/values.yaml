@@ -1,0 +1,152 @@
+image:
+  repository: drumsergio/pumperly
+  pullPolicy: IfNotPresent
+  tag: "1.2.0"
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pumperly.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+config:
+  defaultCountry: "ES"
+  enabledCountries: ""  # Empty = all countries
+  defaultFuel: ""
+  corridorKm: "5"
+  clusterStations: "true"
+  scrapeIntervalHours: ""
+
+apiKeys:
+  tankerkoenig: ""      # Germany fuel prices
+  openChargeMap: ""      # EV charging data
+  fuelpricesDk: ""       # Denmark fuel prices
+  maxmind: ""            # IP geolocation
+
+postgis:
+  image:
+    repository: postgis/postgis
+    tag: "17-3.4-alpine"
+  auth:
+    username: pumperly
+    password: pumperly
+    database: pumperly
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    # storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 4Gi
+
+valhalla:
+  enabled: false
+  image:
+    repository: ghcr.io/gis-ops/docker-valhalla/valhalla
+    tag: "3.5.1"
+  tileUrls: "https://download.geofabrik.de/europe/spain-latest.osm.pbf"
+  serverThreads: "4"
+  buildAdmins: "True"
+  buildTimeZones: "True"
+  persistence:
+    enabled: true
+    size: 100Gi
+    accessModes:
+      - ReadWriteOnce
+    # storageClass: ""
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      memory: 24Gi  # Tile building peaks at ~15-24GB
+
+photon:
+  enabled: false
+  image:
+    repository: eclipse-temurin
+    tag: "21-jre"
+  countries: "spain"  # Comma-separated list
+  languages: "es,en,fr,de"
+  persistence:
+    enabled: true
+    size: 300Gi
+    accessModes:
+      - ReadWriteOnce
+    # storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 8Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+podSecurityContext:
+  fsGroup: 1001
+  runAsNonRoot: true
+  runAsUser: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
