@@ -91,6 +91,9 @@ waitForDatabase:
   timeoutSeconds: 300
   resources: {}
 
+# -- Runs `npx prisma db push` as an init container on every pod start.
+# -- Safe for single-replica homelab deploys. Disable for HA or strict
+# -- rollout processes where schema mutations should be a separate step.
 databaseInit:
   enabled: true
   resources: {}
