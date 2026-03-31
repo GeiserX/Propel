@@ -10,6 +10,9 @@ imagePullSecrets: []
 
 replicaCount: 1
 
+deploymentStrategy:
+  type: Recreate
+
 service:
   type: ClusterIP
   port: 3000
@@ -85,9 +88,11 @@ externalDatabase:
 waitForDatabase:
   enabled: true
   image: busybox:1.36.1
+  resources: {}
 
 databaseInit:
   enabled: true
+  resources: {}
 
 valhalla:
   enabled: false

@@ -16,9 +16,10 @@ Pumperly has been deployed successfully!
    Then access the UI at: http://127.0.0.1:3000/
 {{- end }}
 
+{{- if .Values.postgis.enabled }}
 2. PostGIS is running as a StatefulSet with the postgis/postgis image (spatial extensions included).
-{{- if not .Values.postgis.enabled }}
-   PostGIS is disabled. The chart expects an external database via existingSecret or externalDatabase values.
+{{- else }}
+2. PostGIS is disabled. The chart expects an external database via existingSecret or externalDatabase values.
 {{- end }}
 {{- if .Values.databaseInit.enabled }}
    Prisma schema sync is enabled through an initContainer on the web Deployment.
