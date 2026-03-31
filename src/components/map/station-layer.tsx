@@ -120,7 +120,7 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
       const props = feature.properties as Record<string, unknown>;
       setSelectedStationId(String(props.id ?? ""));
     },
-    [mapRef],
+    [mapRef, setSelectedStationId],
   );
 
   useEffect(() => {
@@ -153,7 +153,7 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
 
   const handleClosePopup = useCallback(() => {
     setSelectedStationId(null);
-  }, []);
+  }, [setSelectedStationId]);
 
   const pointPaint = {
     "circle-color": circleColor,

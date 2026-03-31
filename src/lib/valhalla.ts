@@ -74,8 +74,7 @@ function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
     }
   }
 
-  allCoords = downsample(allCoords, MAX_ROUTE_COORDS);
-
+  // Compute bbox from full-resolution coords before downsampling
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
   for (const [lon, lat] of allCoords) {
     if (lon < minLon) minLon = lon;
@@ -83,6 +82,8 @@ function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
     if (lon > maxLon) maxLon = lon;
     if (lat > maxLat) maxLat = lat;
   }
+
+  allCoords = downsample(allCoords, MAX_ROUTE_COORDS);
 
   return {
     geometry: { type: "LineString", coordinates: allCoords },

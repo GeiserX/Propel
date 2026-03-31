@@ -154,7 +154,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   }, []);
 
   const handleClearRoute = useCallback(() => {
+    if (routeAbortRef.current) routeAbortRef.current.abort();
     setRouteState(null);
+    setIsRouteLoading(false);
     setPrimaryStations({ type: "FeatureCollection", features: [] });
   }, []);
 

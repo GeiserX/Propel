@@ -742,17 +742,17 @@ export function I18nProvider({ defaultLocale, children }: { defaultLocale?: Loca
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
     localStorage.setItem("pumperly-locale", l);
+    // Persist choice in cookie so middleware can read it on unprefixed paths
+    document.cookie = `pumperly-locale=${l};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
     // Navigate to the matching [locale] route so URL stays authoritative
-    if (typeof window !== "undefined") {
-      const path = window.location.pathname;
-      // Strip current locale prefix (e.g. /en/..., /fr/...)
-      const localePattern = /^\/([a-z]{2})(\/|$)/;
-      const match = path.match(localePattern);
-      const rest = match ? path.slice(match[1].length + 1) : path;
-      // "es" is the default locale — no prefix needed
-      const newPath = l === "es" ? (rest || "/") : `/${l}${rest || ""}`;
-      window.location.href = newPath;
-    }
+    const path = window.location.pathname;
+    // Strip current locale prefix (e.g. /en/..., /fr/...)
+    const localePattern = /^\/([a-z]{2})(\/|$)/;
+    const match = path.match(localePattern);
+    const rest = match ? path.slice(match[1].length + 1) : path;
+    // "es" is the default locale — no prefix needed
+    const newPath = l === "es" ? (rest || "/") : `/${l}${rest || ""}`;
+    window.location.href = newPath;
   }, []);
 
   // Sync <html lang> with the active locale
