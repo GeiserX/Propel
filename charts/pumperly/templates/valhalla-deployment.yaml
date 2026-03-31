@@ -18,11 +18,30 @@ spec:
       labels:
         {{- include "pumperly.valhalla.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: valhalla
+        {{- with .Values.valhalla.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.valhalla.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.valhalla.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: valhalla
           image: "{{ .Values.valhalla.image.repository }}:{{ .Values.valhalla.image.tag }}"
           imagePullPolicy: IfNotPresent
+          {{- with .Values.valhalla.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: tile_urls
               value: {{ .Values.valhalla.tileUrls | quote }}
@@ -63,6 +82,18 @@ spec:
       volumes:
         - name: valhalla-data
           persistentVolumeClaim:
-            claimName: {{ include "pumperly.valhalla.fullname" . }}
+            claimName: {{ default (include "pumperly.valhalla.fullname" .) .Values.valhalla.persistence.existingClaim }}
+      {{- end }}
+      {{- with .Values.valhalla.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.valhalla.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.valhalla.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
 {{- end }}
