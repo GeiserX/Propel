@@ -4,7 +4,7 @@ fullnameOverride: ""
 image:
   repository: drumsergio/pumperly
   pullPolicy: IfNotPresent
-  tag: "1.2.0"
+  tag: "1.2.2"
 
 imagePullSecrets: []
 
