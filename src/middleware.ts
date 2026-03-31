@@ -7,6 +7,10 @@ import {
 const localeSet = new Set<string>(SUPPORTED_LOCALES);
 
 function detectLocale(req: NextRequest): string {
+  // Explicit user choice (cookie set by setLocale) takes priority
+  const cookie = req.cookies.get("pumperly-locale")?.value;
+  if (cookie && localeSet.has(cookie)) return cookie;
+
   const accept = req.headers.get("accept-language") ?? "";
   for (const part of accept.split(",")) {
     const code = part.split(";")[0].trim().split("-")[0].toLowerCase();
