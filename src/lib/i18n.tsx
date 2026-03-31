@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type Locale = "es" | "en" | "fr" | "de" | "it" | "pt" | "pl" | "cs" | "hu" | "bg" | "sk" | "da" | "sv" | "no" | "sr" | "fi";
 
@@ -728,18 +728,37 @@ function detectBrowserLocale(): Locale | null {
   return null;
 }
 
-export function I18nProvider({ defaultLocale = "es", children }: { defaultLocale?: Locale; children: ReactNode }) {
+export function I18nProvider({ defaultLocale, children }: { defaultLocale?: Locale; children: ReactNode }) {
+  // URL locale (from [locale] route param) is authoritative when provided.
+  // Fall back to localStorage → browser detection → "es" only when no URL locale.
   const [locale, setLocaleState] = useState<Locale>(() => {
-    if (typeof window === "undefined") return defaultLocale;
+    if (defaultLocale) return defaultLocale;
+    if (typeof window === "undefined") return "es";
     const stored = localStorage.getItem("pumperly-locale") as Locale | null;
     if (stored && stored in translations) return stored;
-    return detectBrowserLocale() ?? defaultLocale;
+    return detectBrowserLocale() ?? "es";
   });
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
     localStorage.setItem("pumperly-locale", l);
+    // Navigate to the matching [locale] route so URL stays authoritative
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      // Strip current locale prefix (e.g. /en/..., /fr/...)
+      const localePattern = /^\/([a-z]{2})(\/|$)/;
+      const match = path.match(localePattern);
+      const rest = match ? path.slice(match[1].length + 1) : path;
+      // "es" is the default locale — no prefix needed
+      const newPath = l === "es" ? (rest || "/") : `/${l}${rest || ""}`;
+      window.location.href = newPath;
+    }
   }, []);
+
+  // Sync <html lang> with the active locale
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const t = useCallback((key: string) => {
     return translations[locale]?.[key] ?? translations.es[key] ?? key;
