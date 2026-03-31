@@ -479,6 +479,11 @@ Open `http://localhost:3000`.
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan.
 
+## Home Assistant
+
+Track fuel and EV charging prices in your Home Assistant dashboard with [pumperly-ha](https://github.com/GeiserX/pumperly-ha).
+
+
 ## Contributing
 
 Contributions are welcome. Please open an issue first to discuss what you'd like to change.
