@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FuelType, StationsGeoJSONCollection } from "@/types/station";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { Route } from "@/components/map/route-layer";
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, type Locale } from "@/lib/i18n";
 import { CurrencyProvider } from "@/lib/currency";
 import { ThemeProvider } from "@/lib/theme";
 import { Navbar } from "@/components/nav/navbar";
@@ -16,6 +16,7 @@ interface Props {
   center: [number, number];
   zoom: number;
   clusterStations: boolean;
+  locale?: Locale;
 }
 
 interface RouteState {
@@ -25,7 +26,7 @@ interface RouteState {
 
 type GeoState = "idle" | "loading" | "active" | "denied";
 
-export function HomeClient({ defaultFuel, center, zoom, clusterStations }: Props) {
+export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale }: Props) {
   const [selectedFuel, setSelectedFuel] = useState<FuelType>(defaultFuel as FuelType);
   const [corridorKm, setCorridorKm] = useState(5);
   const [routeState, setRouteState] = useState<RouteState | null>(null);
@@ -33,6 +34,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations }: Props
   const [primaryStations, setPrimaryStations] = useState<StationsGeoJSONCollection>({ type: "FeatureCollection", features: [] });
   const mapRef = useRef<MapRef | null>(null);
 
+  const routeAbortRef = useRef<AbortController | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
@@ -97,12 +99,17 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations }: Props
 
   const handleRoute = useCallback(
     async (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => {
+      if (routeAbortRef.current) routeAbortRef.current.abort();
+      const controller = new AbortController();
+      routeAbortRef.current = controller;
+
       setIsRouteLoading(true);
       try {
         const res = await fetch("/api/route", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ origin, destination, waypoints }),
+          signal: controller.signal,
         });
         if (!res.ok) return;
         const data: { routes: Route[] } = await res.json();
@@ -119,9 +126,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations }: Props
           { padding: 60, duration: 1000 },
         );
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
       } finally {
-        setIsRouteLoading(false);
+        if (!controller.signal.aborted) setIsRouteLoading(false);
       }
     },
     [],
@@ -161,7 +169,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations }: Props
 
   return (
     <ThemeProvider>
-    <I18nProvider>
+    <I18nProvider defaultLocale={locale}>
     <CurrencyProvider>
     <main className="flex h-dvh w-screen flex-col overflow-hidden">
       <Navbar

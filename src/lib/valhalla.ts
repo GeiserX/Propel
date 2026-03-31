@@ -49,8 +49,22 @@ function decodePolyline(encoded: string): [number, number][] {
   return coords;
 }
 
+const MAX_ROUTE_COORDS = 2000;
+
+/** Keep first, last, and evenly-spaced intermediate points. */
+function downsample(coords: [number, number][], max: number): [number, number][] {
+  if (coords.length <= max) return coords;
+  const result: [number, number][] = [coords[0]];
+  const step = (coords.length - 1) / (max - 1);
+  for (let i = 1; i < max - 1; i++) {
+    result.push(coords[Math.round(i * step)]);
+  }
+  result.push(coords[coords.length - 1]);
+  return result;
+}
+
 function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
-  const allCoords: [number, number][] = [];
+  let allCoords: [number, number][] = [];
   for (const leg of trip.legs) {
     const decoded = decodePolyline(leg.shape);
     if (allCoords.length > 0 && decoded.length > 0) {
@@ -59,6 +73,8 @@ function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
       allCoords.push(...decoded);
     }
   }
+
+  allCoords = downsample(allCoords, MAX_ROUTE_COORDS);
 
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
   for (const [lon, lat] of allCoords) {

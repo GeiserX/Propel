@@ -9,10 +9,13 @@ const VALID_FUEL_TYPES = [
   "LPG", "CNG", "LNG", "H2", "ADBLUE", "EV",
 ] as const;
 
+const MAX_COORDINATES = 2000;
+const MAX_RESULTS = 500;
+
 const bodySchema = z.object({
   geometry: z.object({
     type: z.literal("LineString"),
-    coordinates: z.array(z.tuple([z.number(), z.number()])).min(2),
+    coordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(MAX_COORDINATES),
   }),
   fuel: z.enum(VALID_FUEL_TYPES),
   corridorKm: z.number().min(0.5).max(50).optional().default(5),
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
               $2
             )
           ORDER BY route_fraction
+          LIMIT ${MAX_RESULTS}
           `,
           wkt,
           corridorMeters,
@@ -117,6 +121,7 @@ export async function POST(request: NextRequest) {
             $2
           )
           ORDER BY route_fraction
+          LIMIT ${MAX_RESULTS}
           `,
           wkt,
           corridorMeters,
