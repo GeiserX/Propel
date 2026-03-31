@@ -41,9 +41,8 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      # TODO: Re-enable once eslint-config-next@16 FlatCompat circular structure bug is fixed
-      # - name: Lint
-      #   run: npm run lint
+      - name: Lint
+        run: npm run lint
 
   build:
     name: Build
