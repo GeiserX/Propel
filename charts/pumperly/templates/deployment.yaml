@@ -47,13 +47,21 @@ spec:
             - -ec
           args:
             - >-
+              deadline=$(( $(date +%s) + {{ .Values.waitForDatabase.timeoutSeconds }} ));
               until nc -z
               {{- if .Values.postgis.enabled }}
               {{ include "pumperly.databaseHost" . | quote }}
               {{- else }}
               {{ required "Set externalDatabase.host or disable waitForDatabase.enabled when postgis.enabled=false" .Values.externalDatabase.host | quote }}
               {{- end }}
-              {{ include "pumperly.databasePort" . | quote }}; do echo "waiting for database"; sleep 2; done
+              {{ include "pumperly.databasePort" . | quote }}; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "database did not become ready within {{ .Values.waitForDatabase.timeoutSeconds }} seconds";
+                  exit 1;
+                fi;
+                echo "waiting for database";
+                sleep 2;
+              done
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
