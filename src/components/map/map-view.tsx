@@ -256,6 +256,8 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       fetchAllRouteStations(selectedFuel, routes);
     } else {
+      // Abort any in-flight corridor fetch so stale results don't leak back
+      if (corridorAbortRef.current) { corridorAbortRef.current.abort(); corridorAbortRef.current = null; }
       setCorridorPerRoute([]);
       fetchStations(selectedFuel);
     }
