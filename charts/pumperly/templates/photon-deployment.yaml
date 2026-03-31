@@ -1,0 +1,71 @@
+{{- if .Values.photon.enabled }}
+# NOTE: Photon requires manual setup in v0.1.0.
+# The Photon geocoder uses a custom entrypoint that downloads and imports
+# Nominatim data. In Docker Compose this is handled via a shell script.
+# This chart creates the skeleton resources (Deployment, Service, PVC).
+# You must provide a ConfigMap with the entrypoint script or use a custom
+# image that bundles the Photon JAR and startup logic.
+# See: https://github.com/komoot/photon
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pumperly.photon.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: photon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pumperly.photon.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.photon.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: photon
+    spec:
+      containers:
+        - name: photon
+          image: "{{ .Values.photon.image.repository }}:{{ .Values.photon.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PHOTON_COUNTRIES
+              value: {{ .Values.photon.countries | quote }}
+            - name: PHOTON_LANGUAGES
+              value: {{ .Values.photon.languages | quote }}
+          ports:
+            - name: http
+              containerPort: 2322
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api?q=test
+              port: http
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /api?q=test
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+          {{- if .Values.photon.persistence.enabled }}
+          volumeMounts:
+            - name: photon-data
+              mountPath: /photon/photon_data
+          {{- end }}
+          resources:
+            {{- toYaml .Values.photon.resources | nindent 12 }}
+      {{- if .Values.photon.persistence.enabled }}
+      volumes:
+        - name: photon-data
+          persistentVolumeClaim:
+            claimName: {{ include "pumperly.photon.fullname" . }}
+      {{- end }}
+{{- end }}

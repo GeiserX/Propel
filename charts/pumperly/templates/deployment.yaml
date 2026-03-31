@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pumperly.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pumperly.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pumperly.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pumperly.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: DATABASE_URL
+            {{- if .Values.config.defaultCountry }}
+            - name: PUMPERLY_DEFAULT_COUNTRY
+              value: {{ .Values.config.defaultCountry | quote }}
+            {{- end }}
+            {{- if .Values.config.enabledCountries }}
+            - name: PUMPERLY_ENABLED_COUNTRIES
+              value: {{ .Values.config.enabledCountries | quote }}
+            {{- end }}
+            {{- if .Values.config.defaultFuel }}
+            - name: PUMPERLY_DEFAULT_FUEL
+              value: {{ .Values.config.defaultFuel | quote }}
+            {{- end }}
+            {{- if .Values.config.corridorKm }}
+            - name: PUMPERLY_CORRIDOR_KM
+              value: {{ .Values.config.corridorKm | quote }}
+            {{- end }}
+            {{- if .Values.config.clusterStations }}
+            - name: PUMPERLY_CLUSTER_STATIONS
+              value: {{ .Values.config.clusterStations | quote }}
+            {{- end }}
+            {{- if .Values.config.scrapeIntervalHours }}
+            - name: PUMPERLY_SCRAPE_INTERVAL_HOURS
+              value: {{ .Values.config.scrapeIntervalHours | quote }}
+            {{- end }}
+            {{- if .Values.apiKeys.tankerkoenig }}
+            - name: PUMPERLY_TANKERKOENIG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: PUMPERLY_TANKERKOENIG_API_KEY
+            {{- end }}
+            {{- if .Values.apiKeys.openChargeMap }}
+            - name: PUMPERLY_OPEN_CHARGE_MAP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: PUMPERLY_OPEN_CHARGE_MAP_API_KEY
+            {{- end }}
+            {{- if .Values.apiKeys.fuelpricesDk }}
+            - name: PUMPERLY_FUELPRICES_DK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: PUMPERLY_FUELPRICES_DK_API_KEY
+            {{- end }}
+            {{- if .Values.apiKeys.maxmind }}
+            - name: PUMPERLY_MAXMIND_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pumperly.secretName" . }}
+                  key: PUMPERLY_MAXMIND_LICENSE_KEY
+            {{- end }}
+            {{- if .Values.valhalla.enabled }}
+            - name: PUMPERLY_VALHALLA_URL
+              value: "http://{{ include "pumperly.valhalla.fullname" . }}:8002"
+            {{- end }}
+            {{- if .Values.photon.enabled }}
+            - name: PUMPERLY_PHOTON_URL
+              value: "http://{{ include "pumperly.photon.fullname" . }}:2322"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

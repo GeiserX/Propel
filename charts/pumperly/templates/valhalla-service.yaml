@@ -1,0 +1,18 @@
+{{- if .Values.valhalla.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pumperly.valhalla.fullname" . }}
+  labels:
+    {{- include "pumperly.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valhalla
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8002
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "pumperly.valhalla.selectorLabels" . | nindent 4 }}
+{{- end }}
