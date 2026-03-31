@@ -1,3 +1,6 @@
+{{- if and .Values.databaseInit.enabled (gt (int .Values.replicaCount) 1) }}
+{{- fail "databaseInit.enabled=true with replicaCount > 1 will run concurrent schema migrations. Set databaseInit.enabled=false and run migrations out-of-band, or keep replicaCount=1." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
