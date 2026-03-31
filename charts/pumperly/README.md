@@ -56,6 +56,7 @@ helm upgrade --install pumperly ./charts/pumperly -f my-values.yaml
   - optional API key entries: `TANKERKOENIG_API_KEY`, `PUMPERLY_OCM_API_KEY`, `FUELPRICES_DK_API_KEY`
 - `externalDatabase.*`: required when `postgis.enabled=false` and you are not supplying a full `externalDatabase.url`
 - `waitForDatabase.enabled`: if you keep it enabled with an external DB, also set `externalDatabase.host` so the init container has something to probe
+- `waitForDatabase.timeoutSeconds`: fail startup if the database never becomes reachable instead of waiting forever
 - `deploymentStrategy.type`: switch back to `RollingUpdate` only if you are comfortable with overlapping scraper pods during upgrades
 - `postgis.enabled`: disable bundled PostGIS for managed PostgreSQL/PostGIS
 - `databaseInit.enabled`: run `npx prisma db push` before the app starts
