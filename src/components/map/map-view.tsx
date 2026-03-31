@@ -48,9 +48,14 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   const mapRef = useRef<MapRef | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const corridorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const bboxAbortRef = useRef<AbortController | null>(null);
+  const corridorAbortRef = useRef<AbortController | null>(null);
   const corridorKmRef = useRef(corridorKm);
   corridorKmRef.current = corridorKm;
+  const routesRef = useRef(routes);
+  routesRef.current = routes;
+  const selectedFuelRef = useRef(selectedFuel);
+  selectedFuelRef.current = selectedFuel;
 
   // Per-route corridor stations (with routeFraction)
   const [corridorPerRoute, setCorridorPerRoute] = useState<StationsGeoJSONCollection[]>([]);
@@ -115,9 +120,9 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   // Fetch corridor stations for ALL routes in parallel
   const fetchAllRouteStations = useCallback(
     async (fuel: FuelType, routeList: Route[]) => {
-      if (abortRef.current) abortRef.current.abort();
+      if (corridorAbortRef.current) corridorAbortRef.current.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
+      corridorAbortRef.current = controller;
 
       try {
         const km = corridorKmRef.current;
@@ -145,6 +150,9 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
 
   const fetchStations = useCallback(
     async (fuel: FuelType) => {
+      // Skip bbox fetch if routes are active — corridor fetch handles it
+      if (routesRef.current) return;
+
       const map = mapRef.current;
       if (!map) return;
 
@@ -162,9 +170,9 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         bounds.getNorth(),
       ].join(",");
 
-      if (abortRef.current) abortRef.current.abort();
+      if (bboxAbortRef.current) bboxAbortRef.current.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
+      bboxAbortRef.current = controller;
 
       try {
         const url = `/api/stations?bbox=${bbox}&fuel=${fuel}`;
@@ -244,19 +252,27 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   // When routes change, fetch corridor stations; when cleared, fetch bbox
   useEffect(() => {
     if (routes && routes.length > 0) {
+      // Cancel any pending bbox debounce so it can't fire after we switch modes
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       fetchAllRouteStations(selectedFuel, routes);
     } else {
+      // Abort any in-flight corridor fetch so stale results don't leak back
+      if (corridorAbortRef.current) { corridorAbortRef.current.abort(); corridorAbortRef.current = null; }
       setCorridorPerRoute([]);
       fetchStations(selectedFuel);
     }
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
 
-  // Debounced re-fetch when corridor slider changes (300ms after user stops dragging)
+  // Debounced re-fetch when corridor width changes (300ms after user stops dragging).
+  // Only triggers on corridorKm changes — route changes are handled by the effect above.
+  // Reads routes/fuel from refs so the timer always fires with current values.
   useEffect(() => {
-    if (!routes || routes.length === 0) return;
+    const r = routesRef.current;
+    if (!r || r.length === 0) return;
     if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
     corridorDebounceRef.current = setTimeout(() => {
-      fetchAllRouteStations(selectedFuel, routes);
+      const r2 = routesRef.current;
+      if (r2 && r2.length > 0) fetchAllRouteStations(selectedFuelRef.current, r2);
     }, 300);
     return () => { if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,7 +282,8 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
+      if (bboxAbortRef.current) bboxAbortRef.current.abort();
+      if (corridorAbortRef.current) corridorAbortRef.current.abort();
     };
   }, []);
 

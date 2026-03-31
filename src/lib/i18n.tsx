@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type Locale = "es" | "en" | "fr" | "de" | "it" | "pt" | "pl" | "cs" | "hu" | "bg" | "sk" | "da" | "sv" | "no" | "sr" | "fi";
 
@@ -728,18 +728,37 @@ function detectBrowserLocale(): Locale | null {
   return null;
 }
 
-export function I18nProvider({ defaultLocale = "es", children }: { defaultLocale?: Locale; children: ReactNode }) {
+export function I18nProvider({ defaultLocale, children }: { defaultLocale?: Locale; children: ReactNode }) {
+  // URL locale (from [locale] route param) is authoritative when provided.
+  // Fall back to localStorage → browser detection → "es" only when no URL locale.
   const [locale, setLocaleState] = useState<Locale>(() => {
-    if (typeof window === "undefined") return defaultLocale;
+    if (defaultLocale) return defaultLocale;
+    if (typeof window === "undefined") return "es";
     const stored = localStorage.getItem("pumperly-locale") as Locale | null;
     if (stored && stored in translations) return stored;
-    return detectBrowserLocale() ?? defaultLocale;
+    return detectBrowserLocale() ?? "es";
   });
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
     localStorage.setItem("pumperly-locale", l);
+    // Persist choice in cookie so middleware can read it on unprefixed paths
+    document.cookie = `pumperly-locale=${l};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
+    // Navigate to the matching [locale] route so URL stays authoritative.
+    // Always use /${locale} prefix (including "es") so middleware cookie
+    // isn't required for the immediate navigation to work.
+    const path = window.location.pathname;
+    const localePattern = /^\/([a-z]{2})(\/|$)/;
+    const match = path.match(localePattern);
+    const rest = match ? path.slice(match[1].length + 1) : path;
+    window.location.href = `/${l}${rest || ""}`;
   }, []);
+
+  // Sync <html lang> and ensure cookie exists for middleware (covers fresh visitors)
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.cookie = `pumperly-locale=${locale};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
+  }, [locale]);
 
   const t = useCallback((key: string) => {
     return translations[locale]?.[key] ?? translations.es[key] ?? key;
