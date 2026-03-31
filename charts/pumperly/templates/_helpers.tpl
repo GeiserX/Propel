@@ -51,6 +51,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Selector labels for the web application.
+*/}}
+{{- define "pumperly.webSelectorLabels" -}}
+{{ include "pumperly.selectorLabels" . }}
+app.kubernetes.io/component: web
+{{- end }}
+
+{{/*
 PostGIS selector labels
 */}}
 {{- define "pumperly.postgis.selectorLabels" -}}
@@ -110,12 +118,31 @@ Photon fully qualified name
 Secret name
 */}}
 {{- define "pumperly.secretName" -}}
+{{- if .Values.existingSecret -}}
+{{- .Values.existingSecret -}}
+{{- else -}}
 {{- printf "%s-secret" (include "pumperly.fullname" .) }}
+{{- end -}}
 {{- end }}
 
 {{/*
-Construct DATABASE_URL from postgis auth values
+Database host
 */}}
-{{- define "pumperly.databaseUrl" -}}
-{{- printf "postgresql://%s:%s@%s:5432/%s" .Values.postgis.auth.username .Values.postgis.auth.password (include "pumperly.postgis.fullname" .) .Values.postgis.auth.database }}
-{{- end }}
+{{- define "pumperly.databaseHost" -}}
+{{- if .Values.postgis.enabled -}}
+{{- include "pumperly.postgis.fullname" . -}}
+{{- else -}}
+{{- .Values.externalDatabase.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Database port
+*/}}
+{{- define "pumperly.databasePort" -}}
+{{- if .Values.postgis.enabled -}}
+5432
+{{- else -}}
+{{- .Values.externalDatabase.port -}}
+{{- end -}}
+{{- end -}}

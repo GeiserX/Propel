@@ -17,6 +17,12 @@ Pumperly has been deployed successfully!
 {{- end }}
 
 2. PostGIS is running as a StatefulSet with the postgis/postgis image (spatial extensions included).
+{{- if not .Values.postgis.enabled }}
+   PostGIS is disabled. The chart expects an external database via existingSecret or externalDatabase values.
+{{- end }}
+{{- if .Values.databaseInit.enabled }}
+   Prisma schema sync is enabled through an initContainer on the web Deployment.
+{{- end }}
 
 {{- if .Values.valhalla.enabled }}
 
@@ -33,13 +39,16 @@ Pumperly has been deployed successfully!
 {{- if .Values.photon.enabled }}
 
 4. Photon geocoder is ENABLED.
-   NOTE: Photon requires manual setup in v0.1.0. The chart creates skeleton resources
-   (Deployment, Service, PVC) but you must provide a custom image or ConfigMap with the
-   entrypoint script that downloads the Photon JAR and Nominatim data.
+   NOTE: Photon requires a working image plus command/args supplied in values.
+   The chart will not bootstrap Photon automatically for you.
    See: https://github.com/komoot/photon
 {{- else }}
 
 4. Photon geocoder is DISABLED. Enable it with:
      --set photon.enabled=true
-   NOTE: Photon requires ~250GB disk and manual setup. See chart documentation.
+   NOTE: Photon requires a prepared image/entrypoint and large persistent storage. See chart documentation.
 {{- end }}
+
+5. Scaling note:
+   Keep replicaCount=1 unless you intentionally disable or externalize scraping.
+   Pumperly starts in-process scrapers inside the web container.

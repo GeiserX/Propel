@@ -1,4 +1,4 @@
-{{- if and .Values.valhalla.enabled .Values.valhalla.persistence.enabled }}
+{{- if and .Values.valhalla.enabled .Values.valhalla.persistence.enabled (not .Values.valhalla.persistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

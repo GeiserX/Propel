@@ -1,11 +1,4 @@
 {{- if .Values.photon.enabled }}
-# NOTE: Photon requires manual setup in v0.1.0.
-# The Photon geocoder uses a custom entrypoint that downloads and imports
-# Nominatim data. In Docker Compose this is handled via a shell script.
-# This chart creates the skeleton resources (Deployment, Service, PVC).
-# You must provide a ConfigMap with the entrypoint script or use a custom
-# image that bundles the Photon JAR and startup logic.
-# See: https://github.com/komoot/photon
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,16 +18,38 @@ spec:
       labels:
         {{- include "pumperly.photon.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: photon
+        {{- with .Values.photon.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.photon.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: photon
-          image: "{{ .Values.photon.image.repository }}:{{ .Values.photon.image.tag }}"
+          image: "{{ required "Set photon.image.repository when photon.enabled=true" .Values.photon.image.repository }}:{{ required "Set photon.image.tag when photon.enabled=true" .Values.photon.image.tag }}"
           imagePullPolicy: IfNotPresent
-          env:
-            - name: PHOTON_COUNTRIES
-              value: {{ .Values.photon.countries | quote }}
-            - name: PHOTON_LANGUAGES
-              value: {{ .Values.photon.languages | quote }}
+          {{- with .Values.photon.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.photon.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.photon.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 2322
@@ -66,6 +81,18 @@ spec:
       volumes:
         - name: photon-data
           persistentVolumeClaim:
-            claimName: {{ include "pumperly.photon.fullname" . }}
+            claimName: {{ default (include "pumperly.photon.fullname" .) .Values.photon.persistence.existingClaim }}
+      {{- end }}
+      {{- with .Values.photon.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.photon.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
 {{- end }}

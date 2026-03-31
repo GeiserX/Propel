@@ -1,4 +1,4 @@
-{{- if and .Values.photon.enabled .Values.photon.persistence.enabled }}
+{{- if and .Values.photon.enabled .Values.photon.persistence.enabled (not .Values.photon.persistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

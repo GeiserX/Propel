@@ -14,5 +14,5 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "pumperly.selectorLabels" . | nindent 6 }}
+      {{- include "pumperly.webSelectorLabels" . | nindent 6 }}
 {{- end }}

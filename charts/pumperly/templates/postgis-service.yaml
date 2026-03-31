@@ -1,3 +1,4 @@
+{{- if .Values.postgis.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,3 +15,4 @@ spec:
       name: postgresql
   selector:
     {{- include "pumperly.postgis.selectorLabels" . | nindent 4 }}
+{{- end }}

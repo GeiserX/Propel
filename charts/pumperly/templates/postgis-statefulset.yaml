@@ -1,3 +1,4 @@
+{{- if .Values.postgis.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -16,15 +17,30 @@ spec:
       labels:
         {{- include "pumperly.postgis.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgis
+        {{- with .Values.postgis.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.postgis.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.podSecurityContext }}
       securityContext:
-        fsGroup: 999
-        runAsNonRoot: true
-        runAsUser: 999
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: postgis
           image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
           imagePullPolicy: IfNotPresent
+          {{- with .Values.postgis.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: POSTGRES_USER
               valueFrom:
@@ -78,6 +94,18 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.postgis.resources | nindent 12 }}
+      {{- with .Values.postgis.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgis.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   {{- if .Values.postgis.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
@@ -92,3 +120,4 @@ spec:
         storageClassName: {{ .Values.postgis.persistence.storageClass }}
         {{- end }}
   {{- end }}
+{{- end }}
