@@ -435,7 +435,7 @@ pumperly/
   - `photon/` — OpenSearch index + JAR. Most expensive to rebuild (12-20 hours for 31 regions, 132.7M docs). Uses `.import_complete` sentinel for skip-on-restart.
 - **Backups**: All Pumperly data is covered by the existing Duplicacy appdata backup (daily at 1 AM to geiserback Garage, encrypted, deduplicated). No additional backup config needed.
 - **Caddy**: Site block serves `pumperly.com, www.pumperly.com`. Uses `dynamic_dns` for `pumperly.com`. Always `caddy reload`, never restart (Unraid FUSE stale file handle issue).
-- **DB credentials**: DB user/name/password all use `pumperly`. Fully migrated from legacy `propel` name.
+- **DB credentials**: DB user/name all use `pumperly`.
 
 ### Git Workflow
 
