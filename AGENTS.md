@@ -428,7 +428,7 @@ pumperly/
 
 ### Infrastructure & Backups
 
-- **Portainer stack**: ID 223 ("pumperly"), endpoint 2 on watchtower. Auto-update every 5 minutes from Gitea. Config path: `propel/docker-compose.yml` (symlink to `pumperly/docker-compose.yml`). The Gitea repo (`giteaer/watchtower`) is private — manual redeploy via API may fail with auth errors; auto-update handles it.
+- **Portainer stack**: ID 225 ("pumperly"), endpoint 2 on watchtower. Auto-update every 5 minutes from Gitea. Config path: `pumperly/docker-compose.yml`. The Gitea repo (`giteaer/watchtower`) is private — manual redeploy via API may fail with auth errors; auto-update handles it.
 - **Data volumes** (all under `/mnt/user/appdata/pumperly/`):
   - `pgdata/` (~600 MB) — PostGIS database. Quick to rebuild via scrapers.
   - `valhalla/` (~60+ GB) — Pre-built routing tiles + source PBF (~25GB, 31 European countries). Self-healing: Valhalla rebuilds tiles from PBF on start if missing. Rebuild takes 3-6 hours.
