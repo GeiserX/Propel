@@ -1,3 +1,4 @@
+# ArtifactHub tracked
 apiVersion: v1
 entries:
   pumperly:
@@ -56,3 +57,4 @@ entries:
     - https://github.com/GeiserX/Pumperly/releases/download/pumperly-0.1.0/pumperly-0.1.0.tgz
     version: 0.1.0
 generated: "2026-04-01T10:27:16.085912351Z"
+
