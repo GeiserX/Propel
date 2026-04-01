@@ -1,4 +1,3 @@
-# ArtifactHub verified
 apiVersion: v1
 entries:
   pumperly:
@@ -8,6 +7,8 @@ entries:
     appVersion: 1.2.6
     created: "2026-04-01T10:27:16.085900379Z"
     description: A Helm chart for Pumperly - Open-source fuel and EV route planner
+    annotations:
+      artifacthub.io/signKey: ""
     digest: 99e226b74e5b74242c2515ea73af877c149058bde5b5788508356e065fd65fd2
     home: https://pumperly.com
     keywords:
@@ -35,6 +36,8 @@ entries:
     appVersion: 1.2.2
     created: "2026-04-01T00:56:40.139802+02:00"
     description: A Helm chart for Pumperly - Open-source fuel and EV route planner
+    annotations:
+      artifacthub.io/signKey: ""
     digest: b076f28880d13beb19432959cefc602db811e5dd413d34768d35a328879afff7
     home: https://pumperly.com
     keywords:
