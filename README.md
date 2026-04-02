@@ -489,10 +489,13 @@ Open `http://localhost:3000`.
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan.
 
-## Home Assistant
+## Ecosystem
 
-Track fuel and EV charging prices in your Home Assistant dashboard with [pumperly-ha](https://github.com/GeiserX/pumperly-ha).
-
+| Project | Type | Description |
+|---------|------|-------------|
+| [pumperly-mcp](https://github.com/GeiserX/pumperly-mcp) | MCP Server | Query fuel and EV prices from AI assistants via the Model Context Protocol |
+| [pumperly-ha](https://github.com/GeiserX/pumperly-ha) | Home Assistant Integration | Fuel and EV charging price sensors for your smart home dashboard |
+| [n8n-nodes-pumperly](https://github.com/GeiserX/n8n-nodes-pumperly) | n8n Community Node | Automate fuel price workflows in n8n |
 
 ## Contributing
 
