@@ -56,11 +56,8 @@ export default async function Image({
             xmlns="http://www.w3.org/2000/svg"
           >
             <path
-              d="M18.5 3L9 17.5h7l-3.5 11.5L24 13.5h-7L18.5 3z"
+              d="M19.5 5L11 18h6l-3 9L22 14h-6l3.5-9z"
               fill="#0c111b"
-              stroke="#0c111b"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
             />
           </svg>
         </div>
