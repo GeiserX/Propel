@@ -132,7 +132,7 @@ export function Navbar({ selectedFuel, onFuelChange, geoState, onGeolocate }: Na
                 </linearGradient>
               </defs>
               <rect x="0" y="2" width="28" height="28" rx="7" fill="url(#plogo)" />
-              <path d="M17.5 6L10 17h5l-2.5 9L20 15h-5l2.5-9z" fill="#0c111b" />
+              <path d="M17 6L10 18h5l-3 8L19 14h-5l3-8z" fill="#0c111b" />
               <text x="35" y="23.5" fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif" fontSize="20" fontWeight="700" letterSpacing="-0.5" fill="white">
                 Pumperly
               </text>
