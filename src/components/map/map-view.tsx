@@ -38,10 +38,11 @@ interface MapViewProps {
   onSelectRoute?: (index: number) => void;
   onPrimaryStationsChange?: (stations: StationsGeoJSONCollection) => void;
   userLocation?: [number, number] | null;
+  onMapReady?: () => void;
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, userLocation },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -216,38 +217,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     if (typeof ref === "function") ref(mapRef.current);
     else if (ref) (ref as React.MutableRefObject<MapRef | null>).current = mapRef.current;
 
-    const geolocate = () => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          mapRef.current?.flyTo({
-            center: [pos.coords.longitude, pos.coords.latitude],
-            zoom: 12,
-            duration: 1500,
-          });
-        },
-        () => fetchStations(selectedFuel),
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
-      );
-    };
-
-    if (!navigator.geolocation) {
-      fetchStations(selectedFuel);
-      return;
-    }
-
     fetchStations(selectedFuel);
-
-    if (navigator.permissions?.query) {
-      navigator.permissions.query({ name: "geolocation" }).then((result) => {
-        if (result.state !== "denied") {
-          geolocate();
-        }
-      }).catch(() => geolocate());
-    } else {
-      geolocate();
-    }
+    onMapReady?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchStations, ref]);
+  }, [fetchStations, ref, onMapReady]);
 
   // When routes change, fetch corridor stations; when cleared, fetch bbox
   useEffect(() => {

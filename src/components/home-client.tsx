@@ -44,23 +44,6 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [geoState, setGeoState] = useState<GeoState>("idle");
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
 
-  // Auto-detect location if permission already granted
-  useEffect(() => {
-    if (typeof window === "undefined" || !navigator.geolocation || !navigator.permissions) return;
-    navigator.permissions.query({ name: "geolocation" }).then((perm) => {
-      if (perm.state === "granted") {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            setUserLocation([pos.coords.longitude, pos.coords.latitude]);
-            setGeoState("active");
-          },
-          () => {},
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-        );
-      }
-    }).catch(() => {});
-  }, []);
-
   // Watch position when active
   useEffect(() => {
     if (geoState !== "active" || !navigator.geolocation) return;
@@ -86,6 +69,20 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
   }, []);
+
+  // Auto-geolocate when map is ready (prompts if permission not yet decided)
+  const handleMapReady = useCallback(() => {
+    if (!navigator.geolocation) return;
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: "geolocation" }).then((perm) => {
+        if (perm.state !== "denied") {
+          handleGeolocate();
+        }
+      }).catch(() => {});
+    } else {
+      handleGeolocate();
+    }
+  }, [handleGeolocate]);
 
   const handleFuelChange = useCallback((fuel: FuelType) => {
     setSelectedFuel(fuel);
@@ -199,6 +196,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onSelectRoute={handleSelectRoute}
           onPrimaryStationsChange={handlePrimaryStationsChange}
           userLocation={userLocation}
+          onMapReady={handleMapReady}
         />
         <SearchPanel
           mapCenter={mapCenter}
