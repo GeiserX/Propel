@@ -6,6 +6,7 @@ import { FUEL_TYPES, FUEL_CATEGORIES, FUEL_TYPE_MAP } from "@/types/fuel";
 import { useI18n, LOCALES, type Locale } from "@/lib/i18n";
 import { useCurrency, CURRENCIES, type Currency } from "@/lib/currency";
 import { useTheme } from "@/lib/theme";
+import { BOLT_PATH, BOLT_VIEWBOX, BOLT_FILL, BRAND_GRADIENT_START, BRAND_GRADIENT_END } from "@/lib/brand";
 import { StatsDropdown } from "./stats-dropdown";
 import { LegalModal } from "./legal-modal";
 
@@ -127,12 +128,14 @@ export function Navbar({ selectedFuel, onFuelChange, geoState, onGeolocate }: Na
             <svg viewBox="0 0 168 32" className="h-6" aria-label="Pumperly">
               <defs>
                 <linearGradient id="plogo" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#34d399" />
-                  <stop offset="1" stopColor="#22d3ee" />
+                  <stop stopColor={BRAND_GRADIENT_START} />
+                  <stop offset="1" stopColor={BRAND_GRADIENT_END} />
                 </linearGradient>
               </defs>
               <rect x="0" y="2" width="28" height="28" rx="7" fill="url(#plogo)" />
-              <path d="M17.5 6L10 17h5l-2.5 9L20 15h-5l2.5-9z" fill="#0c111b" />
+              <svg x="0" y="2" width="28" height="28" viewBox={BOLT_VIEWBOX}>
+                <path d={BOLT_PATH} fill={BOLT_FILL} />
+              </svg>
               <text x="35" y="23.5" fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif" fontSize="20" fontWeight="700" letterSpacing="-0.5" fill="white">
                 Pumperly
               </text>

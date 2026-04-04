@@ -5,6 +5,7 @@ import {
   SUPPORTED_LOCALES,
   DEFAULT_LOCALE,
 } from "@/lib/og-translations";
+import { BOLT_PATH, BOLT_VIEWBOX, BOLT_FILL, BRAND_GRADIENT_START, BRAND_GRADIENT_END } from "@/lib/brand";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -41,7 +42,7 @@ export default async function Image({
             width: 160,
             height: 160,
             borderRadius: 38,
-            background: "linear-gradient(135deg, #34d399, #22d3ee)",
+            background: `linear-gradient(135deg, ${BRAND_GRADIENT_START}, ${BRAND_GRADIENT_END})`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -51,17 +52,11 @@ export default async function Image({
           <svg
             width="100"
             height="100"
-            viewBox="0 0 32 32"
+            viewBox={BOLT_VIEWBOX}
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <path
-              d="M18.5 3L9 17.5h7l-3.5 11.5L24 13.5h-7L18.5 3z"
-              fill="#0c111b"
-              stroke="#0c111b"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
+            <path d={BOLT_PATH} fill={BOLT_FILL} />
           </svg>
         </div>
         {/* Title */}
@@ -69,7 +64,7 @@ export default async function Image({
           style={{
             fontSize: 64,
             fontWeight: 700,
-            background: "linear-gradient(90deg, #34d399, #22d3ee)",
+            background: `linear-gradient(90deg, ${BRAND_GRADIENT_START}, ${BRAND_GRADIENT_END})`,
             backgroundClip: "text",
             color: "transparent",
             lineHeight: 1.2,
