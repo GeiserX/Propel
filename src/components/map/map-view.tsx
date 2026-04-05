@@ -127,18 +127,21 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
             }).then((res) => (res.ok ? res.json() as Promise<StationsGeoJSONCollection> : EMPTY_COLLECTION)),
           ),
         );
+        // Only write state if this is still the active request
+        if (corridorAbortRef.current !== controller) return;
         const total = results.reduce((sum, r) => sum + r.features.length, 0);
         const unique = new Set(results.flatMap((r) => r.features.map((f) => f.properties.id))).size;
         console.log(`[map] Route corridors: ${results.map((r) => r.features.length).join("+")} = ${total} stations (${unique} unique) for ${fuel}`);
         setCorridorPerRoute(results);
         onStationsLoadingChange?.(false);
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
+        // Only clear loading if this is still the active request;
+        // a superseding fetch will set its own loading=true.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (corridorAbortRef.current === controller) {
           onStationsLoadingChange?.(false);
-          return;
         }
         console.error("[map] Failed to fetch route stations:", err);
-        onStationsLoadingChange?.(false);
       }
     },
     [onStationsLoadingChange],

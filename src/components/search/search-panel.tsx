@@ -189,8 +189,13 @@ export function SearchPanel({
     (val: string) => {
       setDestText(val);
       setDestination(null);
+      if (phase === "route") {
+        onClearRoute();
+        setWaypoints([]);
+        setPhase("destination");
+      }
     },
-    [],
+    [phase, onClearRoute],
   );
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
@@ -285,6 +290,8 @@ export function SearchPanel({
     (coords: [number, number], name: string, routeFraction: number) => {
       if (!origin || !destination || phase !== "route") return;
 
+      const routeCoords = primaryRoute?.geometry.coordinates as [number, number][] | undefined;
+
       setWaypoints((prev) => {
         // Remove any previous station leg
         const withoutOld = prev.filter((wp) => !wp.isStationLeg);
@@ -299,14 +306,18 @@ export function SearchPanel({
           isStationLeg: true,
         };
 
-        // Insert at position based on routeFraction so the route stays geographically sensible.
-        // Manual waypoints roughly divide the route into equal segments.
-        const n = withoutOld.length;
-        let insertIdx = n;
-        for (let i = 0; i <= n; i++) {
-          if (routeFraction < (i + 1) / (n + 2)) {
-            insertIdx = i;
-            break;
+        // Find correct insertion position by projecting existing waypoints
+        // onto the route geometry to get their real fractions.
+        let insertIdx = withoutOld.length;
+        if (routeCoords && routeCoords.length >= 2 && withoutOld.length > 0) {
+          for (let i = 0; i < withoutOld.length; i++) {
+            const wp = withoutOld[i];
+            if (!wp.location) continue;
+            const wpFrac = projectOntoRoute(wp.location.coordinates, routeCoords);
+            if (routeFraction < wpFrac) {
+              insertIdx = i;
+              break;
+            }
           }
         }
 
@@ -315,7 +326,7 @@ export function SearchPanel({
         return updated;
       });
     },
-    [origin, destination, phase, calculateRoute],
+    [origin, destination, phase, calculateRoute, primaryRoute],
   );
 
   const showDest = phase === "destination" || phase === "route";
@@ -775,4 +786,37 @@ function formatDuration(seconds: number): string {
   const m = Math.round((seconds % 3600) / 60);
   if (h === 0) return `${m} min`;
   return `${h} h ${m} min`;
+}
+
+/** Project a point onto a LineString and return its fraction (0–1) along the line. */
+function projectOntoRoute(point: [number, number], coords: [number, number][]): number {
+  if (coords.length < 2) return 0;
+  let bestDist = Infinity;
+  let bestFrac = 0;
+  let cumLen = 0;
+  const segLens: number[] = [];
+  for (let i = 1; i < coords.length; i++) {
+    const dx = coords[i][0] - coords[i - 1][0];
+    const dy = coords[i][1] - coords[i - 1][1];
+    segLens.push(Math.sqrt(dx * dx + dy * dy));
+  }
+  const totalLen = segLens.reduce((s, l) => s + l, 0);
+  if (totalLen === 0) return 0;
+
+  for (let i = 0; i < segLens.length; i++) {
+    const ax = coords[i][0], ay = coords[i][1];
+    const bx = coords[i + 1][0], by = coords[i + 1][1];
+    const abx = bx - ax, aby = by - ay;
+    const apx = point[0] - ax, apy = point[1] - ay;
+    const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / (abx * abx + aby * aby || 1)));
+    const px = ax + t * abx, py = ay + t * aby;
+    const dx = point[0] - px, dy = point[1] - py;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) {
+      bestDist = d;
+      bestFrac = (cumLen + t * segLens[i]) / totalLen;
+    }
+    cumLen += segLens[i];
+  }
+  return bestFrac;
 }
