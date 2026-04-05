@@ -200,7 +200,11 @@ export function SearchPanel({
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
     setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null } : wp)));
-  }, []);
+    if (phase === "route") {
+      onClearRoute();
+      setPhase("destination");
+    }
+  }, [phase, onClearRoute]);
 
   const handleOriginEnter = useCallback(async () => {
     if (!originText.trim()) return;

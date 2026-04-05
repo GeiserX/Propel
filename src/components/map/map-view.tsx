@@ -233,6 +233,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       // Abort any in-flight corridor fetch so stale results don't leak back
       if (corridorAbortRef.current) { corridorAbortRef.current.abort(); corridorAbortRef.current = null; }
       setCorridorPerRoute([]);
+      onStationsLoadingChange?.(false);
       fetchStations(selectedFuel);
     }
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
