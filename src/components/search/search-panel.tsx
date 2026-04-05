@@ -160,7 +160,8 @@ export function SearchPanel({
 
   useEffect(() => {
     if (wpRouteVersion === 0) return; // skip initial mount
-    if (origin && destination && phase === "route") {
+    if (origin && destination) {
+      if (phase !== "route") setPhase("route");
       calculateRoute(origin, destination, waypoints);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,7 +172,7 @@ export function SearchPanel({
     (wpId: number, result: PhotonResult) => {
       const loc: Location = { label: formatResult(result), coordinates: result.coordinates };
       setWaypoints((prev) =>
-        prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc } : wp)),
+        prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc, isStationLeg: false } : wp)),
       );
       setWpRouteVersion((v) => v + 1);
     },
@@ -208,7 +209,7 @@ export function SearchPanel({
   );
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
-    setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null } : wp)));
+    setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null, isStationLeg: false } : wp)));
     if (phase === "route") {
       onClearRoute();
       setPhase("destination");
