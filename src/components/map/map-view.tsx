@@ -133,7 +133,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         setCorridorPerRoute(results);
         onStationsLoadingChange?.(false);
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") {
+          onStationsLoadingChange?.(false);
+          return;
+        }
         console.error("[map] Failed to fetch route stations:", err);
         onStationsLoadingChange?.(false);
       }

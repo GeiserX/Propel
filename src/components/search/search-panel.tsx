@@ -282,12 +282,15 @@ export function SearchPanel({
 
   // Add station as route leg — replaces any previous station leg
   const handleStationLeg = useCallback(
-    (coords: [number, number], name: string) => {
+    (coords: [number, number], name: string, routeFraction: number) => {
       if (!origin || !destination || phase !== "route") return;
 
       setWaypoints((prev) => {
         // Remove any previous station leg
         const withoutOld = prev.filter((wp) => !wp.isStationLeg);
+        // Don't exceed the backend's waypoint cap
+        if (withoutOld.length >= MAX_WAYPOINTS) return prev;
+
         const id = ++waypointIdCounter;
         const entry: WaypointEntry = {
           id,
@@ -295,7 +298,19 @@ export function SearchPanel({
           location: { label: name, coordinates: coords },
           isStationLeg: true,
         };
-        const updated = [...withoutOld, entry];
+
+        // Insert at position based on routeFraction so the route stays geographically sensible.
+        // Manual waypoints roughly divide the route into equal segments.
+        const n = withoutOld.length;
+        let insertIdx = n;
+        for (let i = 0; i <= n; i++) {
+          if (routeFraction < (i + 1) / (n + 2)) {
+            insertIdx = i;
+            break;
+          }
+        }
+
+        const updated = [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
         calculateRoute(origin, destination, updated);
         return updated;
       });
@@ -511,6 +526,7 @@ export function SearchPanel({
                 onClick={() => {
                   setDestText("");
                   setDestination(null);
+                  setWaypoints([]);
                   if (phase === "route") {
                     onClearRoute();
                     setPhase("destination");
@@ -683,7 +699,7 @@ export function SearchPanel({
                   key={sid}
                   onClick={() => {
                     onFlyTo(station.geometry.coordinates, sid);
-                    handleStationLeg(station.geometry.coordinates, station.properties.brand ?? station.properties.name);
+                    handleStationLeg(station.geometry.coordinates, station.properties.brand ?? station.properties.name, station.properties.routeFraction ?? 0);
                     if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
                   }}
                   className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
