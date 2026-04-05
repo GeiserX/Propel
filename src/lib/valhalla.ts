@@ -119,6 +119,30 @@ export async function getRoute(
   return tripToRoute(data.trip);
 }
 
+/** Get just the duration for a short route leg (no geometry decoding). */
+export async function getRouteDuration(
+  locations: { lat: number; lon: number }[],
+  costing: string = "auto",
+): Promise<number | null> {
+  if (!VALHALLA_URL) return null;
+
+  const res = await fetch(`${VALHALLA_URL}/route`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      locations: locations.map((l) => ({ lat: l.lat, lon: l.lon })),
+      costing,
+      directions_options: { units: "kilometers" },
+      directions_type: "none",
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!res.ok) return null;
+  const data: { trip: ValhallaTrip } = await res.json();
+  return data.trip.summary.time;
+}
+
 /** Get routes with alternatives (only for simple A->B, no waypoints). */
 export async function getRoutes(
   locations: { lat: number; lon: number }[],

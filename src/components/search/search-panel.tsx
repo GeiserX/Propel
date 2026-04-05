@@ -23,6 +23,7 @@ interface SearchPanelProps {
   primaryRouteIndex: number;
   isLoading: boolean;
   primaryStations?: StationsGeoJSONCollection;
+  detoursLoading?: boolean;
   maxPrice?: number | null;
   maxDetour?: number | null;
   onMaxDetourChange?: (detour: number | null) => void;
@@ -53,6 +54,7 @@ export function SearchPanel({
   primaryRouteIndex,
   isLoading,
   primaryStations,
+  detoursLoading,
   maxPrice,
   maxDetour,
   onMaxDetourChange,
@@ -626,6 +628,7 @@ export function SearchPanel({
               const km = primaryRoute
                 ? (station.properties.routeFraction ?? 0) * primaryRoute.distance
                 : 0;
+              const hasDetour = station.properties.detourMin != null;
               const detour = station.properties.detourMin ?? 0;
               const sid = station.properties.id;
               const isCheapest = sid === cheapestId;
@@ -669,8 +672,10 @@ export function SearchPanel({
                     })()}
                     <div className="flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-gray-400">km {km.toFixed(0)}</span>
-                      {detour > 0 && (
-                        <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
+                      {hasDetour ? (
+                        detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
+                      ) : (
+                        detoursLoading && <span className="text-[10px] text-gray-300 animate-pulse">...</span>
                       )}
                       {avgPrice != null && station.properties.price != null && (() => {
                         const diff = station.properties.price - avgPrice;

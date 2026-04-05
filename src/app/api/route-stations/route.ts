@@ -164,30 +164,26 @@ export async function POST(request: NextRequest) {
       .sort((a, b) => a.route_fraction - b.route_fraction)
       .slice(0, MAX_RESULTS);
 
-    const features: StationGeoJSON[] = rows.map((row) => {
-      // Estimate detour: round trip off-route, 1.3x road winding factor, 40 km/h avg
-      const detourMin = Math.round((2 * row.distance_m * 1.3) / (40000 / 60) * 10) / 10;
-      return {
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [row.longitude, row.latitude],
-        },
-        properties: {
-          id: row.id,
-          name: row.name,
-          brand: row.brand,
-          address: row.address,
-          city: row.city,
-          fuelType: fuel,
-          currency: row.currency,
-          ...(row.price != null ? { price: row.price } : {}),
-          ...(row.reported_at ? { reportedAt: new Date(row.reported_at).toISOString() } : {}),
-          routeFraction: row.route_fraction,
-          detourMin,
-        },
-      };
-    });
+    const features: StationGeoJSON[] = rows.map((row) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [row.longitude, row.latitude],
+      },
+      properties: {
+        id: row.id,
+        name: row.name,
+        brand: row.brand,
+        address: row.address,
+        city: row.city,
+        fuelType: fuel,
+        currency: row.currency,
+        ...(row.price != null ? { price: row.price } : {}),
+        ...(row.reported_at ? { reportedAt: new Date(row.reported_at).toISOString() } : {}),
+        routeFraction: row.route_fraction,
+        // detourMin is computed later via /api/route-detour (Valhalla-based)
+      },
+    }));
 
     const collection: StationsGeoJSONCollection = {
       type: "FeatureCollection",

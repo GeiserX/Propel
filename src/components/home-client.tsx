@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FuelType, StationsGeoJSONCollection } from "@/types/station";
+import type { FuelType, StationGeoJSON, StationsGeoJSONCollection } from "@/types/station";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { Route } from "@/components/map/route-layer";
 import { I18nProvider, type Locale } from "@/lib/i18n";
@@ -10,6 +10,8 @@ import { ThemeProvider } from "@/lib/theme";
 import { Navbar } from "@/components/nav/navbar";
 import { MapView } from "@/components/map/map-view";
 import { SearchPanel } from "@/components/search/search-panel";
+
+const DETOUR_BATCH_SIZE = 15;
 
 interface Props {
   defaultFuel: string;
@@ -168,6 +170,95 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     setPrimaryStations(stations);
   }, []);
 
+  // Progressive Valhalla-based detour calculation
+  const detourAbortRef = useRef<AbortController | null>(null);
+  const [detourMap, setDetourMap] = useState<Record<string, number>>({});
+  const [detoursLoading, setDetoursLoading] = useState(false);
+
+  useEffect(() => {
+    // Abort any previous detour fetch
+    if (detourAbortRef.current) detourAbortRef.current.abort();
+    setDetourMap({});
+
+    const route = routeState?.routes[routeState.primaryIndex];
+    if (!route || primaryStations.features.length === 0) {
+      setDetoursLoading(false);
+      return;
+    }
+
+    // Only stations with price + routeFraction (same as sidebar filter)
+    const eligible = primaryStations.features
+      .filter((f) => f.properties.routeFraction != null && f.properties.price != null)
+      .sort((a, b) => (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0));
+
+    if (eligible.length === 0) {
+      setDetoursLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    detourAbortRef.current = controller;
+    setDetoursLoading(true);
+
+    (async () => {
+      const coords = route.geometry.coordinates as [number, number][];
+      const duration = route.duration;
+
+      // Process in batches, sorted by routeFraction (first-visible first)
+      for (let i = 0; i < eligible.length; i += DETOUR_BATCH_SIZE) {
+        if (controller.signal.aborted) return;
+
+        const batch = eligible.slice(i, i + DETOUR_BATCH_SIZE);
+        try {
+          const res = await fetch("/api/route-detour", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              stations: batch.map((f) => ({
+                id: f.properties.id,
+                lon: f.geometry.coordinates[0],
+                lat: f.geometry.coordinates[1],
+                routeFraction: f.properties.routeFraction,
+              })),
+              routeCoordinates: coords,
+              routeDuration: duration,
+            }),
+            signal: controller.signal,
+          });
+          if (!res.ok) continue;
+          const data: { detours: { id: string; detourMin: number }[] } = await res.json();
+          if (controller.signal.aborted) return;
+
+          setDetourMap((prev) => {
+            const next = { ...prev };
+            for (const d of data.detours) {
+              if (d.detourMin >= 0) next[d.id] = d.detourMin;
+            }
+            return next;
+          });
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+        }
+      }
+      if (!controller.signal.aborted) setDetoursLoading(false);
+    })();
+
+    return () => { controller.abort(); };
+  }, [primaryStations, routeState]);
+
+  // Enrich primary stations with real detour values
+  const enrichedStations: StationsGeoJSONCollection = (() => {
+    if (Object.keys(detourMap).length === 0) return primaryStations;
+    return {
+      type: "FeatureCollection",
+      features: primaryStations.features.map((f): StationGeoJSON => {
+        const real = detourMap[f.properties.id];
+        if (real == null) return f;
+        return { ...f, properties: { ...f.properties, detourMin: real } };
+      }),
+    };
+  })();
+
   return (
     <ThemeProvider>
     <I18nProvider defaultLocale={locale}>
@@ -209,7 +300,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           routes={routeState?.routes ?? null}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           isLoading={isRouteLoading}
-          primaryStations={primaryStations}
+          primaryStations={enrichedStations}
+          detoursLoading={detoursLoading}
           maxPrice={maxPrice}
           maxDetour={maxDetour}
           onMaxDetourChange={setMaxDetour}
