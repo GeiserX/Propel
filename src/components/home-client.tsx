@@ -41,6 +41,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   const [maxDetour, setMaxDetour] = useState<number | null>(null);
+  const [stationsLoading, setStationsLoading] = useState(false);
 
   // Geolocation state (lifted so navbar has the button, map has the marker)
   const [geoState, setGeoState] = useState<GeoState>("idle");
@@ -288,6 +289,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onMapMove={handleMapMove}
           onSelectRoute={handleSelectRoute}
           onPrimaryStationsChange={handlePrimaryStationsChange}
+          onStationsLoadingChange={setStationsLoading}
           userLocation={userLocation}
           onMapReady={handleMapReady}
         />
@@ -301,6 +303,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           isLoading={isRouteLoading}
           primaryStations={enrichedStations}
+          stationsLoading={stationsLoading}
           detoursLoading={detoursLoading}
           maxPrice={maxPrice}
           maxDetour={maxDetour}

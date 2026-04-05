@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
     async function processStation(
       s: z.infer<typeof stationSchema>,
     ): Promise<DetourResult> {
-      // Find exit point on route (where you'd leave to go to the station)
-      const exitIndex = Math.max(
+      // Station's closest point on the route
+      const stationIdx = Math.max(
         0,
         Math.min(
           Math.floor(s.routeFraction * (numCoords - 1)),
@@ -58,18 +58,19 @@ export async function POST(request: NextRequest) {
         ),
       );
 
-      // Find rejoin point ~5-15km ahead on route (adaptive based on route length)
-      // Use ~1% of route or at least 10 coordinates ahead
-      const offset = Math.max(10, Math.round(numCoords * 0.01));
-      const rejoinIndex = Math.min(exitIndex + offset, numCoords - 1);
+      // Symmetric window: 3% of route each side (~20km per side on a 670km route).
+      // Large enough that Valhalla can route via highway exit/rejoin naturally,
+      // avoiding the near-round-trip problem with tiny windows.
+      const halfOffset = Math.max(30, Math.round(numCoords * 0.03));
+      const exitIndex = Math.max(0, stationIdx - halfOffset);
+      const rejoinIndex = Math.min(numCoords - 1, stationIdx + halfOffset);
 
-      // If exit and rejoin are the same (near route end), extend backward
-      const actualExit =
-        rejoinIndex === exitIndex
-          ? Math.max(0, exitIndex - offset)
-          : exitIndex;
+      // Ensure exit and rejoin are different points
+      if (exitIndex === rejoinIndex) {
+        return { id: s.id, detourMin: 0 };
+      }
 
-      const exitCoord = routeCoordinates[actualExit];
+      const exitCoord = routeCoordinates[exitIndex];
       const rejoinCoord = routeCoordinates[rejoinIndex];
 
       // Valhalla route: exit → station → rejoin
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Original segment duration (proportional to route fraction covered)
-      const exitFrac = actualExit / (numCoords - 1);
+      const exitFrac = exitIndex / (numCoords - 1);
       const rejoinFrac = rejoinIndex / (numCoords - 1);
       const originalSegmentDuration =
         routeDuration * (rejoinFrac - exitFrac);

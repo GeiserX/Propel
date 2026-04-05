@@ -23,6 +23,7 @@ interface SearchPanelProps {
   primaryRouteIndex: number;
   isLoading: boolean;
   primaryStations?: StationsGeoJSONCollection;
+  stationsLoading?: boolean;
   detoursLoading?: boolean;
   maxPrice?: number | null;
   maxDetour?: number | null;
@@ -42,6 +43,7 @@ interface WaypointEntry {
   id: number;
   text: string;
   location: Location | null;
+  isStationLeg?: boolean;
 }
 
 export function SearchPanel({
@@ -54,6 +56,7 @@ export function SearchPanel({
   primaryRouteIndex,
   isLoading,
   primaryStations,
+  stationsLoading,
   detoursLoading,
   maxPrice,
   maxDetour,
@@ -277,6 +280,29 @@ export function SearchPanel({
     [origin, destination, phase, calculateRoute],
   );
 
+  // Add station as route leg — replaces any previous station leg
+  const handleStationLeg = useCallback(
+    (coords: [number, number], name: string) => {
+      if (!origin || !destination || phase !== "route") return;
+
+      setWaypoints((prev) => {
+        // Remove any previous station leg
+        const withoutOld = prev.filter((wp) => !wp.isStationLeg);
+        const id = ++waypointIdCounter;
+        const entry: WaypointEntry = {
+          id,
+          text: name,
+          location: { label: name, coordinates: coords },
+          isStationLeg: true,
+        };
+        const updated = [...withoutOld, entry];
+        calculateRoute(origin, destination, updated);
+        return updated;
+      });
+    },
+    [origin, destination, phase, calculateRoute],
+  );
+
   const showDest = phase === "destination" || phase === "route";
 
   const [destVisible, setDestVisible] = useState(false);
@@ -406,9 +432,16 @@ export function SearchPanel({
               {/* Waypoint row */}
               <div className="flex items-center">
                 <div className="flex w-10 shrink-0 items-center justify-center">
-                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                    {idx + 1}
-                  </div>
+                  {wp.isStationLeg ? (
+                    <svg className="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                    </svg>
+                  ) : (
+                    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      {idx + 1}
+                    </div>
+                  )}
                 </div>
                 <AutocompleteInput
                   ref={(el) => {
@@ -557,6 +590,16 @@ export function SearchPanel({
         </div>
       )}
 
+      {/* Loading spinner while stations are being fetched */}
+      {phase === "route" && stationsLoading && allStationsWithPrice.length === 0 && !collapsed && (
+        <div className="mt-2 flex items-center justify-center rounded-xl border border-black/[0.08] bg-white/70 px-4 py-6 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500" />
+            <span className="text-xs text-gray-400">{t("stations.loading")}</span>
+          </div>
+        </div>
+      )}
+
       {/* Station list along route — hidden when collapsed */}
       {phase === "route" && allStationsWithPrice.length > 0 && !collapsed && (
         <div className="mt-2 flex min-h-0 flex-1 flex-col rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
@@ -638,7 +681,11 @@ export function SearchPanel({
               return (
                 <button
                   key={sid}
-                  onClick={() => { onFlyTo(station.geometry.coordinates, sid); if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true); }}
+                  onClick={() => {
+                    onFlyTo(station.geometry.coordinates, sid);
+                    handleStationLeg(station.geometry.coordinates, station.properties.brand ?? station.properties.name);
+                    if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
+                  }}
                   className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
                 >
                   <div className="min-w-0 flex-1">

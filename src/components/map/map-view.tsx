@@ -37,12 +37,13 @@ interface MapViewProps {
   onMapMove?: (center: [number, number]) => void;
   onSelectRoute?: (index: number) => void;
   onPrimaryStationsChange?: (stations: StationsGeoJSONCollection) => void;
+  onStationsLoadingChange?: (loading: boolean) => void;
   userLocation?: [number, number] | null;
   onMapReady?: () => void;
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, userLocation, onMapReady },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -112,6 +113,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       if (corridorAbortRef.current) corridorAbortRef.current.abort();
       const controller = new AbortController();
       corridorAbortRef.current = controller;
+      onStationsLoadingChange?.(true);
 
       try {
         const km = corridorKmRef.current;
@@ -129,12 +131,14 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         const unique = new Set(results.flatMap((r) => r.features.map((f) => f.properties.id))).size;
         console.log(`[map] Route corridors: ${results.map((r) => r.features.length).join("+")} = ${total} stations (${unique} unique) for ${fuel}`);
         setCorridorPerRoute(results);
+        onStationsLoadingChange?.(false);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("[map] Failed to fetch route stations:", err);
+        onStationsLoadingChange?.(false);
       }
     },
-    [],
+    [onStationsLoadingChange],
   );
 
   const fetchStations = useCallback(
