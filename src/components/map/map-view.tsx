@@ -215,6 +215,9 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     if (routes && routes.length > 0) {
       // Cancel any pending bbox debounce so it can't fire after we switch modes
       if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+      // Clear stale corridor data immediately so the previous route's stations
+      // don't linger on the map while the new fetch is in-flight
+      setCorridorPerRoute([]);
       fetchAllRouteStations(selectedFuel, routes);
     } else {
       // Abort any in-flight corridor fetch so stale results don't leak back

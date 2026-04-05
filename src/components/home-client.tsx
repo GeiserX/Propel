@@ -133,6 +133,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   );
 
   const handleSelectRoute = useCallback((index: number) => {
+    setSelectedStationId(null);
     setRouteState((prev) => {
       if (!prev) return prev;
       const route = prev.routes[index];
@@ -155,6 +156,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     setRouteState(null);
     setIsRouteLoading(false);
     setPrimaryStations({ type: "FeatureCollection", features: [] });
+    setSelectedStationId(null);
   }, []);
 
   const handleFlyTo = useCallback((coords: [number, number], stationId?: string) => {
