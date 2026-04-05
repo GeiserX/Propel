@@ -38,12 +38,13 @@ interface MapViewProps {
   onSelectRoute?: (index: number) => void;
   onPrimaryStationsChange?: (stations: StationsGeoJSONCollection) => void;
   onStationsLoadingChange?: (loading: boolean) => void;
+  detourMap?: Record<string, number>;
   userLocation?: [number, number] | null;
   onMapReady?: () => void;
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, userLocation, onMapReady },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, detourMap, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -84,7 +85,11 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   const displayStations = useConvertedStations(rawDisplayStations);
 
   const filteredStations: StationsGeoJSONCollection = useMemo(() => {
-    let features = displayStations.features;
+    // Enrich with detour data so map filtering matches the sidebar
+    let features = displayStations.features.map((f) => {
+      const real = detourMap?.[f.properties.id];
+      return real != null ? { ...f, properties: { ...f.properties, detourMin: real } } : f;
+    });
     if (maxPrice != null) {
       features = features.filter((f) => f.properties.price != null && f.properties.price <= maxPrice);
     }
@@ -92,7 +97,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       features = features.filter((f) => f.properties.detourMin == null || f.properties.detourMin <= maxDetour);
     }
     return { type: "FeatureCollection", features };
-  }, [displayStations, maxPrice, maxDetour, routes]);
+  }, [displayStations, detourMap, maxPrice, maxDetour, routes]);
 
   // Convert primary corridor stations for the station list panel
   const rawPrimaryStations = (routes && corridorPerRoute[primaryRouteIndex]) || EMPTY_COLLECTION;

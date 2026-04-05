@@ -19,6 +19,7 @@ interface SearchPanelProps {
   onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => void;
   onClearRoute: () => void;
   onSelectRoute?: (index: number) => void;
+  routeError?: string | null;
   routes: Route[] | null;
   primaryRouteIndex: number;
   isLoading: boolean;
@@ -52,6 +53,7 @@ export function SearchPanel({
   onRoute,
   onClearRoute,
   onSelectRoute,
+  routeError,
   routes,
   primaryRouteIndex,
   isLoading,
@@ -78,6 +80,13 @@ export function SearchPanel({
   const destRef = useRef<AutocompleteRef>(null);
   const waypointRefs = useRef<Map<number, AutocompleteRef>>(new Map());
   const originEditedRef = useRef(false);
+
+  // Roll back to destination phase if route calculation failed
+  useEffect(() => {
+    if (routeError && phase === "route" && !routes) {
+      setPhase("destination");
+    }
+  }, [routeError, phase, routes]);
 
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
 
@@ -356,20 +365,26 @@ export function SearchPanel({
     setDestVisible(false);
   }, [showDest]);
 
-  // All stations with price (unfiltered — used to decide if card should show)
-  const allStationsWithPrice = primaryStations?.features
-    .filter((f) => f.properties.routeFraction != null && f.properties.price != null)
+  // All corridor stations (price may be null for EV chargers)
+  const allCorridorStations = primaryStations?.features
+    .filter((f) => f.properties.routeFraction != null)
     ?? [];
 
   // Station list: filtered by price and detour, sorted by user selection.
   // Stations whose detour is still unknown (null) pass the detour filter
   // and sort to the end when sorting by detour, so they don't optimistically
   // appear as "0 min" during progressive loading.
-  const stationList = allStationsWithPrice
-    .filter((f) => (maxPrice == null || f.properties.price! <= maxPrice)
+  const stationList = allCorridorStations
+    .filter((f) => (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
       && (maxDetour == null || f.properties.detourMin == null || f.properties.detourMin <= maxDetour))
     .sort((a, b) => {
-      if (sortBy === "price") return a.properties.price! - b.properties.price!;
+      if (sortBy === "price") {
+        const pa = a.properties.price, pb = b.properties.price;
+        if (pa == null && pb == null) return 0;
+        if (pa == null) return 1;
+        if (pb == null) return -1;
+        return pa - pb;
+      }
       if (sortBy === "detour") {
         const da = a.properties.detourMin, db = b.properties.detourMin;
         if (da == null && db == null) return 0;
@@ -380,14 +395,15 @@ export function SearchPanel({
       return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
     });
 
-  // Average price for savings comparison
-  const avgPrice = stationList.length > 0
-    ? stationList.reduce((sum, s) => sum + s.properties.price!, 0) / stationList.length
+  // Average price for savings comparison (EV chargers have no price)
+  const withPrice = stationList.filter((s) => s.properties.price != null);
+  const avgPrice = withPrice.length > 0
+    ? withPrice.reduce((sum, s) => sum + s.properties.price!, 0) / withPrice.length
     : null;
 
   // Badges: cheapest, shortest detour, balanced (only when 2+ stations)
-  const cheapestId = stationList.length > 0
-    ? stationList.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
+  const cheapestId = withPrice.length > 0
+    ? withPrice.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
     : null;
   const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null);
   const shortestDetourId = withKnownDetour.length > 0
@@ -615,6 +631,13 @@ export function SearchPanel({
         )}
       </div>
 
+      {/* Route error */}
+      {routeError && !routes && (
+        <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-center text-xs text-red-600 shadow-lg dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          {routeError}
+        </div>
+      )}
+
       {/* Route info + alternatives — hidden when collapsed */}
       {primaryRoute && !collapsed && (
         <div className="mt-2 shrink-0 rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
@@ -644,7 +667,7 @@ export function SearchPanel({
       )}
 
       {/* Loading spinner while stations are being fetched */}
-      {phase === "route" && stationsLoading && allStationsWithPrice.length === 0 && !collapsed && (
+      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !collapsed && (
         <div className="mt-2 flex items-center justify-center rounded-xl border border-black/[0.08] bg-white/70 px-4 py-6 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
           <div className="flex flex-col items-center gap-2">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500" />
@@ -654,7 +677,7 @@ export function SearchPanel({
       )}
 
       {/* Station list along route — hidden when collapsed */}
-      {phase === "route" && allStationsWithPrice.length > 0 && !collapsed && (
+      {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
         <div className="mt-2 flex min-h-0 flex-1 flex-col rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
           <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-gray-700">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
