@@ -5,7 +5,7 @@ import Map from "react-map-gl/maplibre";
 import type { MapRef, ViewStateChangeEvent } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-import type { FuelType, StationsGeoJSONCollection, StationGeoJSON } from "@/types/station";
+import type { FuelType, StationsGeoJSONCollection } from "@/types/station";
 import type { Route } from "./route-layer";
 import { Marker } from "react-map-gl/maplibre";
 import { StationLayer } from "./station-layer";
@@ -73,24 +73,12 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     setLegendRange({ min, max });
   }, []);
 
-  // Merge all route corridor stations (deduplicated) for map display
-  const mergedCorridorStations: StationsGeoJSONCollection = useMemo(() => {
-    if (corridorPerRoute.length === 0) return EMPTY_COLLECTION;
-    const seen = new Set<string>();
-    const features: StationGeoJSON[] = [];
-    for (const collection of corridorPerRoute) {
-      for (const f of collection.features) {
-        if (!seen.has(f.properties.id)) {
-          seen.add(f.properties.id);
-          features.push(f);
-        }
-      }
-    }
-    return { type: "FeatureCollection", features };
-  }, [corridorPerRoute]);
-
-  // Choose which stations to display: corridor when routes active, bbox otherwise
-  const rawDisplayStations = routes ? mergedCorridorStations : bboxStations;
+  // Choose which stations to display: primary route corridor when routes active, bbox otherwise.
+  // Previously this merged all routes' stations, but that caused stations found only by
+  // alternative routes to appear on the map without being in the sidebar station list.
+  const rawDisplayStations = routes
+    ? (corridorPerRoute[primaryRouteIndex] || EMPTY_COLLECTION)
+    : bboxStations;
   // Convert all prices to the user's selected currency
   const displayStations = useConvertedStations(rawDisplayStations);
 
