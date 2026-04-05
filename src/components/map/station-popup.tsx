@@ -106,9 +106,13 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
           </div>
         )}
 
-        {/* Navigate button */}
+        {/* Navigate button — prefer address for better Google Maps routing */}
         <a
-          href={`https://www.google.com/maps/dir/?api=1&destination=${geometry.coordinates[1]},${geometry.coordinates[0]}`}
+          href={`https://www.google.com/maps/dir/?api=1&destination=${
+            properties.address
+              ? encodeURIComponent(`${properties.address}, ${properties.city}`)
+              : `${geometry.coordinates[1]},${geometry.coordinates[0]}`
+          }`}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-600"
