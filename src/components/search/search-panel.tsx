@@ -154,19 +154,28 @@ export function SearchPanel({
     [origin, waypoints, calculateRoute],
   );
 
+  // Track whether waypoints changed in a way that requires route recalculation.
+  // Bumped by handlers that modify resolved waypoints (select, remove, station leg).
+  const [wpRouteVersion, setWpRouteVersion] = useState(0);
+
+  useEffect(() => {
+    if (wpRouteVersion === 0) return; // skip initial mount
+    if (origin && destination && phase === "route") {
+      calculateRoute(origin, destination, waypoints);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wpRouteVersion]);
+
   // Waypoint selected → recalculate if route active
   const handleWaypointSelect = useCallback(
     (wpId: number, result: PhotonResult) => {
       const loc: Location = { label: formatResult(result), coordinates: result.coordinates };
-      setWaypoints((prev) => {
-        const updated = prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc } : wp));
-        if (origin && destination) {
-          calculateRoute(origin, destination, updated);
-        }
-        return updated;
-      });
+      setWaypoints((prev) =>
+        prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc } : wp)),
+      );
+      setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, calculateRoute],
+    [],
   );
 
   const handleOriginChange = useCallback(
@@ -278,16 +287,14 @@ export function SearchPanel({
   // Remove waypoint
   const removeWaypoint = useCallback(
     (wpId: number) => {
-      setWaypoints((prev) => {
-        const updated = prev.filter((wp) => wp.id !== wpId);
-        if (origin && destination && phase === "route") {
-          calculateRoute(origin, destination, updated);
-        }
-        return updated;
-      });
+      setWaypoints((prev) => prev.filter((wp) => wp.id !== wpId));
+      setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, phase, calculateRoute],
+    [],
   );
+
+  // Transient message for station-leg feedback
+  const [stationLegMsg, setStationLegMsg] = useState<string | null>(null);
 
   // Add station as route leg — replaces any previous station leg
   const handleStationLeg = useCallback(
@@ -300,7 +307,11 @@ export function SearchPanel({
         // Remove any previous station leg
         const withoutOld = prev.filter((wp) => !wp.isStationLeg);
         // Don't exceed the backend's waypoint cap
-        if (withoutOld.length >= MAX_WAYPOINTS) return prev;
+        if (withoutOld.length >= MAX_WAYPOINTS) {
+          setStationLegMsg(t("stations.maxStops"));
+          setTimeout(() => setStationLegMsg(null), 3000);
+          return prev;
+        }
 
         const id = ++waypointIdCounter;
         const entry: WaypointEntry = {
@@ -325,12 +336,11 @@ export function SearchPanel({
           }
         }
 
-        const updated = [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
-        calculateRoute(origin, destination, updated);
-        return updated;
+        return [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
       });
+      setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, phase, calculateRoute, primaryRoute],
+    [origin, destination, phase, primaryRoute, t],
   );
 
   const showDest = phase === "destination" || phase === "route";
@@ -693,6 +703,11 @@ export function SearchPanel({
               className="mt-1 h-1 w-full cursor-pointer touch-none accent-emerald-500"
             />
           </div>
+          {stationLegMsg && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+              {stationLegMsg}
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto sm:max-h-[200px]">
             {stationList.length === 0 ? (
               <div className="px-4 py-4 text-center text-xs text-gray-400">
