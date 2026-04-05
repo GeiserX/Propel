@@ -42,6 +42,28 @@ export async function POST(request: NextRequest) {
   const numCoords = routeCoordinates.length;
 
   try {
+    // Pre-compute cumulative segment lengths for consistent length-based fractions.
+    // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
+    // length, so we need length-based — not vertex-index-based — windows and baselines.
+    const cumLen: number[] = [0];
+    for (let i = 1; i < numCoords; i++) {
+      const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
+      const dy = routeCoordinates[i][1] - routeCoordinates[i - 1][1];
+      cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+    }
+    const totalLen = cumLen[numCoords - 1];
+
+    // Binary-search: find the vertex index where cumLen >= targetLen
+    function distToIndex(targetLen: number): number {
+      let lo = 0, hi = numCoords - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (cumLen[mid] < targetLen) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
     // Process stations with controlled concurrency
     const results: DetourResult[] = [];
     const queue = [...stations];
@@ -49,23 +71,17 @@ export async function POST(request: NextRequest) {
     async function processStation(
       s: z.infer<typeof stationSchema>,
     ): Promise<DetourResult> {
-      // Station's closest point on the route
-      const stationIdx = Math.max(
-        0,
-        Math.min(
-          Math.floor(s.routeFraction * (numCoords - 1)),
-          numCoords - 1,
-        ),
-      );
+      if (totalLen === 0) return { id: s.id, detourMin: 0 };
 
-      // Symmetric window: 3% of route each side (~20km per side on a 670km route).
-      // Large enough that Valhalla can route via highway exit/rejoin naturally,
-      // avoiding the near-round-trip problem with tiny windows.
-      const halfOffset = Math.max(30, Math.round(numCoords * 0.03));
-      const exitIndex = Math.max(0, stationIdx - halfOffset);
-      const rejoinIndex = Math.min(numCoords - 1, stationIdx + halfOffset);
+      // Symmetric window: 3% of route length each side.
+      const stationDist = s.routeFraction * totalLen;
+      const windowDist = totalLen * 0.03;
+      const exitDist = Math.max(0, stationDist - windowDist);
+      const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
-      // Ensure exit and rejoin are different points
+      const exitIndex = distToIndex(exitDist);
+      const rejoinIndex = Math.min(numCoords - 1, distToIndex(rejoinDist));
+
       if (exitIndex === rejoinIndex) {
         return { id: s.id, detourMin: 0 };
       }
@@ -84,9 +100,9 @@ export async function POST(request: NextRequest) {
         return { id: s.id, detourMin: -1 };
       }
 
-      // Original segment duration (proportional to route fraction covered)
-      const exitFrac = exitIndex / (numCoords - 1);
-      const rejoinFrac = rejoinIndex / (numCoords - 1);
+      // Baseline: time for the original route segment, using length-based fractions
+      const exitFrac = exitDist / totalLen;
+      const rejoinFrac = rejoinDist / totalLen;
       const originalSegmentDuration =
         routeDuration * (rejoinFrac - exitFrac);
 

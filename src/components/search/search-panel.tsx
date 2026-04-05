@@ -302,17 +302,18 @@ export function SearchPanel({
     (coords: [number, number], name: string, routeFraction: number) => {
       if (!origin || !destination || phase !== "route") return;
 
+      // Check cap before entering updater to keep it pure
+      const manualCount = waypoints.filter((wp) => !wp.isStationLeg).length;
+      if (manualCount >= MAX_WAYPOINTS) {
+        setStationLegMsg(t("stations.maxStops"));
+        setTimeout(() => setStationLegMsg(null), 3000);
+        return;
+      }
+
       const routeCoords = primaryRoute?.geometry.coordinates as [number, number][] | undefined;
 
       setWaypoints((prev) => {
-        // Remove any previous station leg
         const withoutOld = prev.filter((wp) => !wp.isStationLeg);
-        // Don't exceed the backend's waypoint cap
-        if (withoutOld.length >= MAX_WAYPOINTS) {
-          setStationLegMsg(t("stations.maxStops"));
-          setTimeout(() => setStationLegMsg(null), 3000);
-          return prev;
-        }
 
         const id = ++waypointIdCounter;
         const entry: WaypointEntry = {
@@ -341,7 +342,7 @@ export function SearchPanel({
       });
       setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, phase, primaryRoute, t],
+    [origin, destination, phase, waypoints, primaryRoute, t],
   );
 
   const showDest = phase === "destination" || phase === "route";
@@ -360,13 +361,22 @@ export function SearchPanel({
     .filter((f) => f.properties.routeFraction != null && f.properties.price != null)
     ?? [];
 
-  // Station list: filtered by price and detour, sorted by user selection
+  // Station list: filtered by price and detour, sorted by user selection.
+  // Stations whose detour is still unknown (null) pass the detour filter
+  // and sort to the end when sorting by detour, so they don't optimistically
+  // appear as "0 min" during progressive loading.
   const stationList = allStationsWithPrice
     .filter((f) => (maxPrice == null || f.properties.price! <= maxPrice)
-      && (maxDetour == null || (f.properties.detourMin ?? 0) <= maxDetour))
+      && (maxDetour == null || f.properties.detourMin == null || f.properties.detourMin <= maxDetour))
     .sort((a, b) => {
       if (sortBy === "price") return a.properties.price! - b.properties.price!;
-      if (sortBy === "detour") return (a.properties.detourMin ?? 0) - (b.properties.detourMin ?? 0);
+      if (sortBy === "detour") {
+        const da = a.properties.detourMin, db = b.properties.detourMin;
+        if (da == null && db == null) return 0;
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return da - db;
+      }
       return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
     });
 
@@ -379,22 +389,23 @@ export function SearchPanel({
   const cheapestId = stationList.length > 0
     ? stationList.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
     : null;
-  const shortestDetourId = stationList.length > 0
-    ? stationList.reduce((best, s) => ((s.properties.detourMin ?? 0) < (best.properties.detourMin ?? 0) ? s : best)).properties.id
+  const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null);
+  const shortestDetourId = withKnownDetour.length > 0
+    ? withKnownDetour.reduce((best, s) => (s.properties.detourMin! < best.properties.detourMin! ? s : best)).properties.id
     : null;
   // Balanced: normalize price (0-1) and detour (0-1) within list, pick lowest combined score
-  const balancedId = stationList.length >= 3 ? (() => {
-    const prices = stationList.map((s) => s.properties.price!);
-    const detours = stationList.map((s) => s.properties.detourMin ?? 0);
+  const balancedId = withKnownDetour.length >= 3 ? (() => {
+    const prices = withKnownDetour.map((s) => s.properties.price!);
+    const detours = withKnownDetour.map((s) => s.properties.detourMin!);
     const minP = Math.min(...prices), maxP = Math.max(...prices);
     const minD = Math.min(...detours), maxD = Math.max(...detours);
     const rangeP = maxP - minP || 1;
     const rangeD = maxD - minD || 1;
     let bestScore = Infinity;
-    let bestId = stationList[0].properties.id;
-    for (const s of stationList) {
+    let bestId = withKnownDetour[0].properties.id;
+    for (const s of withKnownDetour) {
       const normP = (s.properties.price! - minP) / rangeP;
-      const normD = ((s.properties.detourMin ?? 0) - minD) / rangeD;
+      const normD = (s.properties.detourMin! - minD) / rangeD;
       const score = normP * 0.6 + normD * 0.4;
       if (score < bestScore) { bestScore = score; bestId = s.properties.id; }
     }

@@ -114,6 +114,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (!res.ok) return;
         const data: { routes: Route[] } = await res.json();
         if (data.routes.length === 0) return;
+        // Only write state if this is still the active request
+        if (routeAbortRef.current !== controller) return;
 
         setRouteState({ routes: data.routes, primaryIndex: 0 });
 
