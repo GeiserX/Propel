@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PhotonResult } from "@/lib/photon";
 import type { Route } from "@/components/map/route-layer";
 import type { StationsGeoJSONCollection } from "@/types/station";
@@ -347,6 +347,17 @@ export function SearchPanel({
   // Transient message for station-leg feedback
   const [stationLegMsg, setStationLegMsg] = useState<string | null>(null);
 
+  // Transient error for station-leg failures (auto-dismisses)
+  const [stationLegError, setStationLegError] = useState<string | null>(null);
+  useEffect(() => {
+    if (routeError && routes) {
+      setStationLegError(routeError);
+      const timer = setTimeout(() => setStationLegError(null), 3000);
+      return () => clearTimeout(timer);
+    }
+    setStationLegError(null);
+  }, [routeError, routes]);
+
   // Add station as route leg — replaces any previous station leg
   const handleStationLeg = useCallback(
     (coords: [number, number], name: string, routeFraction: number) => {
@@ -395,6 +406,31 @@ export function SearchPanel({
     },
     [origin, destination, phase, waypoints, primaryRoute, t],
   );
+
+  // Auto-trigger station-leg when a station is selected (from map click or sidebar).
+  // Uses refs so the effect only fires on selectedStationId changes, not when
+  // handleStationLeg's closure deps (origin/destination/waypoints) change.
+  const handleStationLegRef = useRef(handleStationLeg);
+  handleStationLegRef.current = handleStationLeg;
+  const primaryStationsRef = useRef(primaryStations);
+  primaryStationsRef.current = primaryStations;
+  const prevSelectedRef = useRef(selectedStationId);
+
+  useEffect(() => {
+    // Only fire when selectedStationId actually changes to a new non-null value
+    if (selectedStationId === prevSelectedRef.current) return;
+    prevSelectedRef.current = selectedStationId;
+    if (!selectedStationId || phase !== "route") return;
+    const stations = primaryStationsRef.current;
+    if (!stations) return;
+    const station = stations.features.find((f) => f.properties.id === selectedStationId);
+    if (!station || station.properties.routeFraction == null) return;
+    handleStationLegRef.current(
+      station.geometry.coordinates,
+      station.properties.brand ?? station.properties.name,
+      station.properties.routeFraction,
+    );
+  }, [selectedStationId, phase]);
 
   const showDest = phase === "destination" || phase === "route";
 
@@ -675,20 +711,27 @@ export function SearchPanel({
         )}
       </div>
 
-      {/* Route error */}
+      {/* Route error — persistent when no routes */}
       {routeError && !routes && (
         <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-center text-xs text-red-600 shadow-lg dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
           {t(routeError)}
+        </div>
+      )}
+      {/* Station-leg error — transient amber toast, auto-clears */}
+      {stationLegError && routes && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs text-amber-600 shadow-lg dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+          {t(stationLegError)}
         </div>
       )}
 
       {/* Route info + alternatives — hidden when collapsed */}
       {primaryRoute && !collapsed && (
         <div className="mt-2 shrink-0 rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
-          {/* All routes — selected one is bold, others are clickable */}
+          {/* All routes — selected one shows preview metrics when active */}
           {routes && routes.map((route, i) => {
             const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
             const isSelected = i === primaryRouteIndex;
+            const effectiveRoute = (isSelected && displayRoutes?.[0]) || route;
             return (
               <button
                 key={i}
@@ -697,12 +740,12 @@ export function SearchPanel({
               >
                 <div className="flex items-center gap-2 text-sm">
                   <div className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                  <span className={isSelected ? "text-gray-500 dark:text-gray-400" : "text-gray-400"}>{formatDistance(route.distance)}</span>
+                  <span className={isSelected ? "text-gray-500 dark:text-gray-400" : "text-gray-400"}>{formatDistance(effectiveRoute.distance)}</span>
                 </div>
                 {isSelected && isLoading ? (
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
                 ) : (
-                  <span className={`text-sm ${isSelected ? "font-semibold text-gray-800 dark:text-gray-100" : "text-gray-500"}`}>{formatDuration(route.duration)}</span>
+                  <span className={`text-sm ${isSelected ? "font-semibold text-gray-800 dark:text-gray-100" : "text-gray-500"}`}>{formatDuration(effectiveRoute.duration)}</span>
                 )}
               </button>
             );
@@ -816,7 +859,6 @@ export function SearchPanel({
                   key={sid}
                   onClick={() => {
                     onFlyTo(station.geometry.coordinates, sid);
-                    handleStationLeg(station.geometry.coordinates, station.properties.brand ?? station.properties.name, station.properties.routeFraction ?? 0);
                     if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
                   }}
                   className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}

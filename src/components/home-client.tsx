@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FuelType, StationGeoJSON, StationsGeoJSONCollection } from "@/types/station";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { Route } from "@/components/map/route-layer";
@@ -135,6 +135,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (!res.ok) {
           if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
+            else setSelectedStationId(null);
             setStationLegRoutes(null);
             setRouteError("route.error");
           }
@@ -144,6 +145,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (data.routes.length === 0) {
           if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
+            else setSelectedStationId(null);
             setStationLegRoutes(null);
             setRouteError("route.noRoute");
           }
@@ -178,6 +180,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         console.error("Route calculation failed:", err);
         if (abortRef.current === controller) {
           if (!isStationLeg) setRouteState(null);
+          else setSelectedStationId(null);
           setStationLegRoutes(null);
           setRouteError("route.error");
         }
@@ -239,6 +242,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleClearStationLeg = useCallback(() => {
     if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
+    setSelectedStationId(null);
     if (!routeAbortRef.current) setIsRouteLoading(false);
   }, []);
 
@@ -256,17 +260,30 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [detourMap, setDetourMap] = useState<Record<string, number>>({});
   const [detoursLoading, setDetoursLoading] = useState(false);
 
+  // Stable key based on station IDs — only changes when actual stations change,
+  // not when currency conversion updates the collection reference.
+  const primaryStationsRef = useRef(primaryStations);
+  primaryStationsRef.current = primaryStations;
+  const stationKey = useMemo(() => {
+    const ids = primaryStations.features
+      .filter((f) => f.properties.routeFraction != null)
+      .map((f) => f.properties.id);
+    ids.sort();
+    return ids.join(",");
+  }, [primaryStations]);
+
   useEffect(() => {
     if (detourAbortRef.current) detourAbortRef.current.abort();
     setDetourMap({});
 
+    const stations = primaryStationsRef.current;
     const route = routeState?.routes[routeState.primaryIndex];
-    if (!route || primaryStations.features.length === 0) {
+    if (!route || stations.features.length === 0) {
       setDetoursLoading(false);
       return;
     }
 
-    const eligible = primaryStations.features
+    const eligible = stations.features
       .filter((f) => f.properties.routeFraction != null)
       .sort((a, b) => (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0));
 
@@ -386,7 +403,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       controller.abort();
       if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
     };
-  }, [primaryStations, routeState]);
+  }, [stationKey, routeState]);
 
   // Enrich primary stations with real detour values
   const enrichedStations: StationsGeoJSONCollection = (() => {
