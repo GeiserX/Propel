@@ -192,21 +192,29 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       try {
         const url = `/api/stations?bbox=${bbox}&fuel=${fuel}`;
         const res = await fetch(url, { signal: controller.signal });
+        if (bboxAbortRef.current !== controller) return;
         if (!res.ok) {
           console.warn(`[map] Bbox fetch failed: ${res.status}`);
           setBboxStations(EMPTY_COLLECTION);
+          onStationsErrorChange?.(true);
           return;
         }
         const data: StationsGeoJSONCollection = await res.json();
+        if (bboxAbortRef.current !== controller) return;
         console.log(`[map] Bbox fetch: ${data.features.length} stations for ${fuel}`);
         setBboxStations(data);
+        onStationsErrorChange?.(false);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        console.error("[map] Failed to fetch stations:", err);
-        setBboxStations(EMPTY_COLLECTION);
+        if (bboxAbortRef.current === controller) {
+          console.error("[map] Failed to fetch stations:", err);
+          setBboxStations(EMPTY_COLLECTION);
+          onStationsErrorChange?.(true);
+        }
       }
     },
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStationsErrorChange is a stable setter
+    [onStationsErrorChange],
   );
 
   const debouncedFetch = useCallback(
