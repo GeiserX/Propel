@@ -188,6 +188,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleSelectRoute = useCallback((index: number) => {
     setSelectedStationId(null);
+    if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
     // Clear stale corridor so detour effect doesn't pair new primary route
     // with previous route's stations while MapView lifts the update
