@@ -1,4 +1,4 @@
-import { runInNewContext } from "vm";
+import JSON5 from "json5";
 import { BaseScraper, type RawFuelPrice, type RawStation } from "./base";
 import type { FuelType } from "../types/station";
 
@@ -523,8 +523,14 @@ export class NorwayScraper extends BaseScraper {
     if (nuxt2Match) {
       console.log(`[${this.source}] Found Nuxt 2 __NUXT__ payload`);
       try {
-        // Sandboxed eval — no access to require/process/global, 1s timeout
-        const payload = runInNewContext(`(${nuxt2Match[1]})`, Object.create(null), { timeout: 1000 });
+        // Safe parse — no code execution. Preprocess JS-specific constructs,
+        // then use JSON5 which handles unquoted keys, single quotes, trailing commas.
+        const sanitized = nuxt2Match[1]
+          .replace(/\bvoid\s+0\b/g, "null")
+          .replace(/\bundefined\b/g, "null")
+          .replace(/\bNaN\b/g, "null")
+          .replace(/\bInfinity\b/g, "null");
+        const payload = JSON5.parse(sanitized);
         return this.extractFromNuxt2Payload(payload);
       } catch (e) {
         console.warn(

@@ -42,6 +42,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   const [maxDetour, setMaxDetour] = useState<number | null>(null);
   const [stationsLoading, setStationsLoading] = useState(false);
+  const [stationsError, setStationsError] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
 
   // Geolocation state (lifted so navbar has the button, map has the marker)
@@ -160,6 +161,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleSelectRoute = useCallback((index: number) => {
     setSelectedStationId(null);
+    // Clear stale corridor so detour effect doesn't pair new primary route
+    // with previous route's stations while MapView lifts the update
+    setPrimaryStations({ type: "FeatureCollection", features: [] });
     setRouteState((prev) => {
       if (!prev) return prev;
       const route = prev.routes[index];
@@ -328,6 +332,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onSelectRoute={handleSelectRoute}
           onPrimaryStationsChange={handlePrimaryStationsChange}
           onStationsLoadingChange={setStationsLoading}
+          onStationsErrorChange={setStationsError}
           detourMap={detourMap}
           userLocation={userLocation}
           onMapReady={handleMapReady}
@@ -344,6 +349,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           isLoading={isRouteLoading}
           primaryStations={enrichedStations}
           stationsLoading={stationsLoading}
+          stationsError={stationsError}
           detoursLoading={detoursLoading}
           maxPrice={maxPrice}
           maxDetour={maxDetour}

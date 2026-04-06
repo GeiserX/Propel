@@ -38,13 +38,14 @@ interface MapViewProps {
   onSelectRoute?: (index: number) => void;
   onPrimaryStationsChange?: (stations: StationsGeoJSONCollection) => void;
   onStationsLoadingChange?: (loading: boolean) => void;
+  onStationsErrorChange?: (error: boolean) => void;
   detourMap?: Record<string, number>;
   userLocation?: [number, number] | null;
   onMapReady?: () => void;
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, detourMap, userLocation, onMapReady },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, onStationsErrorChange, detourMap, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -132,7 +133,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
             }).then((res) => {
               if (!res.ok) {
                 console.warn(`[map] Route stations fetch failed: ${res.status}`);
-                return EMPTY_COLLECTION;
+                return null;
               }
               return res.json() as Promise<StationsGeoJSONCollection>;
             }),
@@ -140,10 +141,13 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         );
         // Only write state if this is still the active request
         if (corridorAbortRef.current !== controller) return;
-        const total = results.reduce((sum, r) => sum + r.features.length, 0);
-        const unique = new Set(results.flatMap((r) => r.features.map((f) => f.properties.id))).size;
-        console.log(`[map] Route corridors: ${results.map((r) => r.features.length).join("+")} = ${total} stations (${unique} unique) for ${fuel}`);
-        setCorridorPerRoute(results);
+        const hasErrors = results.some((r) => r === null);
+        const cleaned = results.map((r) => r ?? EMPTY_COLLECTION);
+        const total = cleaned.reduce((sum, r) => sum + r.features.length, 0);
+        const unique = new Set(cleaned.flatMap((r) => r.features.map((f) => f.properties.id))).size;
+        console.log(`[map] Route corridors: ${cleaned.map((r) => r.features.length).join("+")} = ${total} stations (${unique} unique) for ${fuel}`);
+        setCorridorPerRoute(cleaned);
+        onStationsErrorChange?.(hasErrors);
         onStationsLoadingChange?.(false);
       } catch (err) {
         // Only clear loading if this is still the active request;
@@ -155,7 +159,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         console.error("[map] Failed to fetch route stations:", err);
       }
     },
-    [onStationsLoadingChange],
+    [onStationsLoadingChange, onStationsErrorChange],
   );
 
   const fetchStations = useCallback(
@@ -239,14 +243,17 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       // Clear stale corridor data immediately so the previous route's stations
       // don't linger on the map while the new fetch is in-flight
       setCorridorPerRoute([]);
+      onStationsErrorChange?.(false);
       fetchAllRouteStations(selectedFuel, routes);
     } else {
       // Abort any in-flight corridor fetch so stale results don't leak back
       if (corridorAbortRef.current) { corridorAbortRef.current.abort(); corridorAbortRef.current = null; }
+      onStationsErrorChange?.(false);
       setCorridorPerRoute([]);
       onStationsLoadingChange?.(false);
       fetchStations(selectedFuel);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- onStationsLoadingChange/onStationsErrorChange are stable setters
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
 
   // Debounced re-fetch when corridor width changes (300ms after user stops dragging).

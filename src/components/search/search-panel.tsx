@@ -25,6 +25,7 @@ interface SearchPanelProps {
   isLoading: boolean;
   primaryStations?: StationsGeoJSONCollection;
   stationsLoading?: boolean;
+  stationsError?: boolean;
   detoursLoading?: boolean;
   maxPrice?: number | null;
   maxDetour?: number | null;
@@ -59,6 +60,7 @@ export function SearchPanel({
   isLoading,
   primaryStations,
   stationsLoading,
+  stationsError,
   detoursLoading,
   maxPrice,
   maxDetour,
@@ -111,7 +113,10 @@ export function SearchPanel({
         setPhase("destination");
         setTimeout(() => destRef.current?.focus(), 100);
       },
-      () => {},
+      () => {
+        setOriginText("");
+        setOrigin(null);
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
   }, [t, onFlyTo, onClearRoute, phase]);
@@ -688,7 +693,7 @@ export function SearchPanel({
       {/* Empty state when corridor loading finishes with zero stations */}
       {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
         <div className="mt-2 rounded-xl border border-black/[0.08] bg-white/70 px-4 py-4 text-center shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
-          <span className="text-xs text-gray-400">{t("stations.noStations")}</span>
+          <span className="text-xs text-gray-400">{t(stationsError ? "stations.loadError" : "stations.noStations")}</span>
         </div>
       )}
 
