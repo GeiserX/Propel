@@ -24,7 +24,7 @@ const coordSchema = z.tuple([
 const bodySchema = z.object({
   stations: z.array(stationSchema).min(1).max(500),
   routeCoordinates: z.array(coordSchema).min(2).max(3000),
-  routeDuration: z.number().min(0),
+  routeDurations: z.array(z.number().min(0)),
 });
 
 /** Stream per-station detour times as NDJSON. Each line: `{"id":"…","detourMin":…}` */
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { stations, routeCoordinates, routeDuration } = parseResult.data;
+  const { stations, routeCoordinates, routeDurations } = parseResult.data;
   const numCoords = routeCoordinates.length;
 
   // Pre-compute cumulative segment lengths for consistent length-based fractions.
@@ -142,14 +142,12 @@ export async function POST(request: NextRequest) {
         return { id: s.id, detourMin: -1 };
       }
 
-      // Baseline estimated from the original route's timing, proportional to
-      // the fraction of route covered by the exit→rejoin window. This is more
-      // accurate than a separate Valhalla call because it uses the actual
-      // route's speed profile instead of an independently-routed segment.
-      const segFraction = (cumLen[rejoinIdx] - cumLen[exitIdx]) / totalLen;
-      const estimatedBaseline = routeDuration * segFraction;
+      // Exact baseline from per-point cumulative durations (built from Valhalla
+      // maneuver timing). This is the actual driving time for the exit→rejoin
+      // segment on the original route — no proportional approximation.
+      const baselineSec = routeDurations[rejoinIdx] - routeDurations[exitIdx];
 
-      const detourSec = viaStationDuration - estimatedBaseline;
+      const detourSec = viaStationDuration - baselineSec;
       // Large negative means something went wrong
       if (detourSec < -60) return { id: s.id, detourMin: -1 };
       const detourMin = Math.round(Math.max(0, detourSec) / 6) / 10;

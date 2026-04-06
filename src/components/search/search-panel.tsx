@@ -419,10 +419,16 @@ export function SearchPanel({
   const prevSelectedRef = useRef(selectedStationId);
 
   useEffect(() => {
-    // Only fire when selectedStationId actually changes to a new non-null value
     if (selectedStationId === prevSelectedRef.current) return;
     prevSelectedRef.current = selectedStationId;
-    if (!selectedStationId || phase !== "route") return;
+
+    if (!selectedStationId) {
+      // Station deselected (map toggle or sidebar toggle): remove station-leg waypoint
+      setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+      return;
+    }
+
+    if (phase !== "route") return;
     const stations = primaryStationsRef.current;
     if (!stations) return;
     const station = stations.features.find((f) => f.properties.id === selectedStationId);
@@ -864,8 +870,9 @@ export function SearchPanel({
                   key={sid}
                   onClick={() => {
                     if (isActive) {
-                      // Toggle off: deselect station (clears leg preview)
-                      onSelectStation?.(null);
+                      // Toggle off: remove station-leg waypoint and clear preview
+                      setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+                      onClearStationLeg?.();
                     } else {
                       onFlyTo(station.geometry.coordinates, sid);
                     }
