@@ -447,6 +447,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           selectedStationId={selectedStationId}
           routeError={routeError}
           routes={routeState?.routes ?? null}
+          displayRoutes={stationLegRoutes}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           isLoading={isRouteLoading}
           primaryStations={enrichedStations}

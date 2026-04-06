@@ -23,6 +23,7 @@ interface SearchPanelProps {
   selectedStationId?: string | null;
   routeError?: string | null;
   routes: Route[] | null;
+  displayRoutes?: Route[] | null;
   primaryRouteIndex: number;
   isLoading: boolean;
   primaryStations?: StationsGeoJSONCollection;
@@ -60,6 +61,7 @@ export function SearchPanel({
   selectedStationId,
   routeError,
   routes,
+  displayRoutes,
   primaryRouteIndex,
   isLoading,
   primaryStations,
@@ -106,6 +108,8 @@ export function SearchPanel({
   }, [selectedStationId]);
 
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
+  // When a station-leg preview is active, show its duration/distance instead
+  const displayRoute = displayRoutes?.[0] ?? primaryRoute;
 
   // "My location" handler — triggers geolocation and sets as origin
   const handleLocationSelect = useCallback(() => {
@@ -658,9 +662,9 @@ export function SearchPanel({
           >
             <div className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
               <div className="h-2 w-2 rounded-full bg-blue-500" />
-              <span>{formatDistance(primaryRoute!.distance)}</span>
+              <span>{formatDistance(displayRoute!.distance)}</span>
               <span className="text-gray-400">·</span>
-              <span>{formatDuration(primaryRoute!.duration)}</span>
+              <span>{formatDuration(displayRoute!.duration)}</span>
             </div>
             <span className={collapsed ? "" : "rotate-180"}>
               <svg className="h-5 w-5 animate-[chevron-pulse_1.5s_ease-in-out_infinite]" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
