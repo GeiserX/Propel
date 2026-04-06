@@ -150,10 +150,11 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         onStationsErrorChange?.(hasErrors);
         onStationsLoadingChange?.(false);
       } catch (err) {
-        // Only clear loading if this is still the active request;
-        // a superseding fetch will set its own loading=true.
         if (err instanceof DOMException && err.name === "AbortError") return;
+        // Only update state if this is still the active request;
+        // a superseding fetch will set its own loading/error.
         if (corridorAbortRef.current === controller) {
+          onStationsErrorChange?.(true);
           onStationsLoadingChange?.(false);
         }
         console.error("[map] Failed to fetch route stations:", err);
@@ -191,13 +192,18 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       try {
         const url = `/api/stations?bbox=${bbox}&fuel=${fuel}`;
         const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn(`[map] Bbox fetch failed: ${res.status}`);
+          setBboxStations(EMPTY_COLLECTION);
+          return;
+        }
         const data: StationsGeoJSONCollection = await res.json();
         console.log(`[map] Bbox fetch: ${data.features.length} stations for ${fuel}`);
         setBboxStations(data);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("[map] Failed to fetch stations:", err);
+        setBboxStations(EMPTY_COLLECTION);
       }
     },
     [],
