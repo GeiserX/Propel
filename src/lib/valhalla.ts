@@ -123,6 +123,7 @@ export async function getRoute(
 export async function getRouteDuration(
   locations: { lat: number; lon: number }[],
   costing: string = "auto",
+  signal?: AbortSignal,
 ): Promise<number | null> {
   if (!VALHALLA_URL) return null;
 
@@ -135,7 +136,9 @@ export async function getRouteDuration(
       directions_options: { units: "kilometers" },
       directions_type: "none",
     }),
-    signal: AbortSignal.timeout(5000),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+      : AbortSignal.timeout(5000),
   });
 
   if (!res.ok) return null;

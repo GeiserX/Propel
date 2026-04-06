@@ -4,23 +4,29 @@ import { getRouteDuration } from "@/lib/valhalla";
 
 const CONCURRENCY = 8;
 
+const detourResultSchema = z.object({
+  id: z.string(),
+  detourMin: z.number(),
+});
+
 const stationSchema = z.object({
   id: z.string(),
-  lon: z.number(),
-  lat: z.number(),
-  routeFraction: z.number(),
+  lon: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90),
+  routeFraction: z.number().min(0).max(1),
 });
+
+const coordSchema = z.tuple([
+  z.number().min(-180).max(180),
+  z.number().min(-90).max(90),
+]);
 
 const bodySchema = z.object({
-  stations: z.array(stationSchema).min(1).max(50),
-  routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(3000),
+  stations: z.array(stationSchema).min(1).max(500),
+  routeCoordinates: z.array(coordSchema).min(2).max(3000),
 });
 
-interface DetourResult {
-  id: string;
-  detourMin: number;
-}
-
+/** Stream per-station detour times as NDJSON. Each line: `{"id":"…","detourMin":…}` */
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
@@ -40,114 +46,117 @@ export async function POST(request: NextRequest) {
   const { stations, routeCoordinates } = parseResult.data;
   const numCoords = routeCoordinates.length;
 
-  try {
-    // Pre-compute cumulative segment lengths for consistent length-based fractions.
-    // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
-    // length, so we need length-based — not vertex-index-based — exit/rejoin windows.
-    const cumLen: number[] = [0];
-    for (let i = 1; i < numCoords; i++) {
-      const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
-      const dy = routeCoordinates[i][1] - routeCoordinates[i - 1][1];
-      cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  // Pre-compute cumulative segment lengths for consistent length-based fractions.
+  // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
+  // length, so we need length-based — not vertex-index-based — exit/rejoin windows.
+  const cumLen: number[] = [0];
+  for (let i = 1; i < numCoords; i++) {
+    const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
+    const dy = routeCoordinates[i][1] - routeCoordinates[i - 1][1];
+    cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  }
+  const totalLen = cumLen[numCoords - 1];
+
+  // Binary-search: find the vertex index where cumLen >= targetLen
+  function distToIndex(targetLen: number): number {
+    let lo = 0, hi = numCoords - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cumLen[mid] < targetLen) lo = mid + 1;
+      else hi = mid;
     }
-    const totalLen = cumLen[numCoords - 1];
+    return lo;
+  }
 
-    // Binary-search: find the vertex index where cumLen >= targetLen
-    function distToIndex(targetLen: number): number {
-      let lo = 0, hi = numCoords - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (cumLen[mid] < targetLen) lo = mid + 1;
-        else hi = mid;
-      }
-      return lo;
-    }
+  async function processStation(
+    s: z.infer<typeof stationSchema>,
+  ): Promise<{ id: string; detourMin: number }> {
+    try {
+      if (totalLen === 0) return { id: s.id, detourMin: 0 };
 
-    // Process stations with controlled concurrency
-    const results: DetourResult[] = [];
-    const queue = [...stations];
+      const stationDist = s.routeFraction * totalLen;
+      const windowDist = totalLen * 0.03;
+      const exitDist = Math.max(0, stationDist - windowDist);
+      const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
-    async function processStation(
-      s: z.infer<typeof stationSchema>,
-    ): Promise<DetourResult> {
-      try {
-        if (totalLen === 0) return { id: s.id, detourMin: 0 };
+      let exitIdx = distToIndex(exitDist);
+      let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
 
-        // Symmetric window: 3% of route length each side.
-        const stationDist = s.routeFraction * totalLen;
-        const windowDist = totalLen * 0.03;
-        const exitDist = Math.max(0, stationDist - windowDist);
-        const rejoinDist = Math.min(totalLen, stationDist + windowDist);
-
-        let exitIdx = distToIndex(exitDist);
-        let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
-
-        // If the window collapsed to a single vertex (sparse/downsampled geometry),
-        // widen to guarantee at least two distinct vertices for Valhalla routing.
+      if (exitIdx === rejoinIdx) {
+        exitIdx = Math.max(0, exitIdx - 1);
+        rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
         if (exitIdx === rejoinIdx) {
-          exitIdx = Math.max(0, exitIdx - 1);
-          rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
-          if (exitIdx === rejoinIdx) {
-            return { id: s.id, detourMin: -1 };
-          }
-        }
-
-        const exitCoord = routeCoordinates[exitIdx];
-        const rejoinCoord = routeCoordinates[rejoinIdx];
-
-        // Two parallel Valhalla calls: detour leg and direct baseline.
-        // The old linear-interpolation baseline (routeDuration * fraction) assumed
-        // uniform speed, which is wildly wrong on long mixed highway/town routes.
-        const [detourDuration, baselineDuration] = await Promise.all([
-          // exit → station → rejoin
-          getRouteDuration([
-            { lat: exitCoord[1], lon: exitCoord[0] },
-            { lat: s.lat, lon: s.lon },
-            { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-          ]),
-          // exit → rejoin (actual road time for this segment)
-          getRouteDuration([
-            { lat: exitCoord[1], lon: exitCoord[0] },
-            { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-          ]),
-        ]);
-
-        if (detourDuration == null || baselineDuration == null) {
           return { id: s.id, detourMin: -1 };
         }
+      }
 
-        // Detour = via-station time minus direct time for same segment
-        const detourSec = Math.max(0, detourDuration - baselineDuration);
-        const detourMin = Math.round(detourSec / 6) / 10; // 1 decimal place
+      const exitCoord = routeCoordinates[exitIdx];
+      const rejoinCoord = routeCoordinates[rejoinIdx];
 
-        return { id: s.id, detourMin };
-      } catch (err) {
-        console.warn(`[route-detour] station ${s.id} failed:`, err);
+      const [detourDuration, baselineDuration] = await Promise.all([
+        getRouteDuration([
+          { lat: exitCoord[1], lon: exitCoord[0] },
+          { lat: s.lat, lon: s.lon },
+          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+        ], "auto", signal),
+        getRouteDuration([
+          { lat: exitCoord[1], lon: exitCoord[0] },
+          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+        ], "auto", signal),
+      ]);
+
+      if (detourDuration == null || baselineDuration == null) {
         return { id: s.id, detourMin: -1 };
       }
-    }
 
-    // Run with concurrency limit
-    const workers: Promise<void>[] = [];
-    for (let i = 0; i < CONCURRENCY; i++) {
-      workers.push(
-        (async () => {
-          while (queue.length > 0) {
-            const station = queue.shift()!;
-            const result = await processStation(station);
-            results.push(result);
-          }
-        })(),
-      );
-    }
-    await Promise.all(workers);
+      const detourSec = Math.max(0, detourDuration - baselineDuration);
+      const detourMin = Math.round(detourSec / 6) / 10;
 
-    return NextResponse.json({ detours: results });
-  } catch (err) {
-    console.error("[route-detour] failed:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+      return { id: s.id, detourMin };
+    } catch (err) {
+      console.warn(`[route-detour] station ${s.id} failed:`, err);
+      return { id: s.id, detourMin: -1 };
+    }
   }
+
+  const encoder = new TextEncoder();
+  const queue = [...stations];
+  const { signal } = request;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      // Drain queue on client disconnect so workers stop picking up new stations
+      const onAbort = () => { queue.length = 0; };
+      signal.addEventListener("abort", onAbort);
+      try {
+        const workers: Promise<void>[] = [];
+        for (let i = 0; i < CONCURRENCY; i++) {
+          workers.push(
+            (async () => {
+              while (queue.length > 0) {
+                const station = queue.shift()!;
+                const result = detourResultSchema.parse(await processStation(station));
+                if (signal.aborted) return;
+                controller.enqueue(encoder.encode(JSON.stringify(result) + "\n"));
+              }
+            })(),
+          );
+        }
+        await Promise.all(workers);
+      } catch (err) {
+        console.error("[route-detour] stream failed:", err);
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Transfer-Encoding": "chunked",
+      "Cache-Control": "no-cache",
+    },
+  });
 }
