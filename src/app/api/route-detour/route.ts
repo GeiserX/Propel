@@ -124,8 +124,10 @@ export async function POST(request: NextRequest) {
         return { id: s.id, detourMin: -1 };
       }
 
-      const detourSec = Math.max(0, detourDuration - baselineDuration);
-      const detourMin = Math.round(detourSec / 6) / 10;
+      const detourSec = detourDuration - baselineDuration;
+      // Large negative means baseline was longer than detour — bad baseline match
+      if (detourSec < -60) return { id: s.id, detourMin: -1 };
+      const detourMin = Math.round(Math.max(0, detourSec) / 6) / 10;
 
       return { id: s.id, detourMin };
     } catch (err) {
