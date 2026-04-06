@@ -12,7 +12,7 @@ const stationSchema = z.object({
 });
 
 const bodySchema = z.object({
-  stations: z.array(stationSchema).min(1).max(50),
+  stations: z.array(stationSchema).min(1),
   routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(3000),
 });
 

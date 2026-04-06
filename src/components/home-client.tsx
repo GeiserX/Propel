@@ -277,8 +277,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     detourAbortRef.current = controller;
     setDetoursLoading(true);
 
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
     (async () => {
       const coords = route.geometry.coordinates as [number, number][];
+      const eligibleIds = new Set(eligible.map((f) => f.properties.id));
+      const seen = new Set<string>();
 
       try {
         const res = await fetch("/api/route-detour", {
@@ -297,9 +301,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         });
 
         if (!res.ok || !res.body) {
-          // Mark all as failed
-          setDetourMap(Object.fromEntries(eligible.map((f) => [f.properties.id, -1])));
-          setDetoursLoading(false);
+          if (!controller.signal.aborted) {
+            setDetourMap(Object.fromEntries(eligible.map((f) => [f.properties.id, -1])));
+            setDetoursLoading(false);
+          }
           return;
         }
 
@@ -308,10 +313,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         const decoder = new TextDecoder();
         let buffer = "";
         let pending: Record<string, number> = {};
-        let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
         function flush() {
           flushTimer = null;
+          if (controller.signal.aborted) return;
           const batch = pending;
           pending = {};
           setDetourMap((prev) => ({ ...prev, ...batch }));
@@ -336,23 +341,32 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
             try {
               const { id, detourMin } = JSON.parse(line);
               pending[id] = detourMin;
+              seen.add(id);
             } catch { /* skip malformed line */ }
           }
 
           if (Object.keys(pending).length > 0) scheduleFlush();
         }
 
-        // Flush any remaining results
-        if (flushTimer != null) clearTimeout(flushTimer);
-        if (Object.keys(pending).length > 0) flush();
+        // Flush remaining results
+        if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
+        if (!controller.signal.aborted && Object.keys(pending).length > 0) flush();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setDetourMap(Object.fromEntries(eligible.map((f) => [f.properties.id, -1])));
+        // Only mark unseen stations as failed — keep already-flushed successes
+        if (!controller.signal.aborted) {
+          const failed: Record<string, number> = {};
+          for (const id of eligibleIds) { if (!seen.has(id)) failed[id] = -1; }
+          if (Object.keys(failed).length > 0) setDetourMap((prev) => ({ ...prev, ...failed }));
+        }
       }
       if (!controller.signal.aborted) setDetoursLoading(false);
     })();
 
-    return () => { controller.abort(); };
+    return () => {
+      controller.abort();
+      if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
+    };
   }, [primaryStations, routeState]);
 
   // Enrich primary stations with real detour values
