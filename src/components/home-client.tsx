@@ -343,7 +343,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
                 routeFraction: f.properties.routeFraction,
               })),
               routeCoordinates: coords,
-              routeDuration: route.duration,
+              routeDurations: route.durations ?? [],
             }),
             signal: controller.signal,
           });

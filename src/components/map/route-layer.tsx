@@ -9,6 +9,7 @@ export interface Route {
   distance: number;
   duration: number;
   bbox: [number, number, number, number];
+  durations?: number[]; // cumulative seconds at each coordinate
 }
 
 // Fixed route colors by index — each route keeps its color regardless of selection

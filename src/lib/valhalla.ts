@@ -5,11 +5,19 @@ export interface ValhallaRoute {
   distance: number; // km
   duration: number; // seconds
   bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  durations: number[]; // cumulative seconds at each coordinate
+}
+
+interface ValhallaManeuver {
+  time: number;
+  begin_shape_index: number;
+  end_shape_index: number;
 }
 
 interface ValhallaLeg {
   shape: string; // encoded polyline (precision 6)
   summary: { length: number; time: number };
+  maneuvers?: ValhallaManeuver[];
 }
 
 interface ValhallaTrip {
@@ -51,27 +59,89 @@ function decodePolyline(encoded: string): [number, number][] {
 
 const MAX_ROUTE_COORDS = 2000;
 
-/** Keep first, last, and evenly-spaced intermediate points. */
-function downsample(coords: [number, number][], max: number): [number, number][] {
-  if (coords.length <= max) return coords;
-  const result: [number, number][] = [coords[0]];
-  const step = (coords.length - 1) / (max - 1);
+/** Get evenly-spaced indices for downsampling (first, last, and evenly-spaced intermediate). */
+function getDownsampleIndices(length: number, max: number): number[] {
+  if (length <= max) return Array.from({ length }, (_, i) => i);
+  const indices: number[] = [0];
+  const step = (length - 1) / (max - 1);
   for (let i = 1; i < max - 1; i++) {
-    result.push(coords[Math.round(i * step)]);
+    indices.push(Math.round(i * step));
   }
-  result.push(coords[coords.length - 1]);
-  return result;
+  indices.push(length - 1);
+  return indices;
+}
+
+/** Build per-shape-point cumulative durations from Valhalla maneuvers. */
+function buildLegDurations(
+  coords: [number, number][],
+  maneuvers: ValhallaManeuver[],
+  totalTime: number,
+): number[] {
+  const n = coords.length;
+  if (n <= 1) return [0];
+
+  function segDist(i: number): number {
+    const dx = coords[i + 1][0] - coords[i][0];
+    const dy = coords[i + 1][1] - coords[i][1];
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  const dur = new Array<number>(n).fill(0);
+
+  if (maneuvers.length === 0) {
+    // Fallback: distribute time linearly by distance
+    let totalDist = 0;
+    for (let i = 0; i < n - 1; i++) totalDist += segDist(i);
+    let cumDist = 0;
+    for (let i = 0; i < n - 1; i++) {
+      cumDist += segDist(i);
+      dur[i + 1] = totalDist > 0 ? totalTime * (cumDist / totalDist) : totalTime;
+    }
+    return dur;
+  }
+
+  for (const m of maneuvers) {
+    const a = m.begin_shape_index;
+    const b = Math.min(m.end_shape_index, n - 1);
+    if (a >= b) continue;
+
+    let mDist = 0;
+    const dists: number[] = [];
+    for (let i = a; i < b; i++) {
+      const d = segDist(i);
+      dists.push(d);
+      mDist += d;
+    }
+
+    let cumDist = 0;
+    for (let i = a; i < b; i++) {
+      cumDist += dists[i - a];
+      dur[i + 1] = dur[a] + (mDist > 0 ? m.time * (cumDist / mDist) : m.time);
+    }
+  }
+
+  return dur;
 }
 
 function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
   let allCoords: [number, number][] = [];
+  let allDurations: number[] = [];
+  let cumTime = 0;
+
   for (const leg of trip.legs) {
     const decoded = decodePolyline(leg.shape);
+    const legDur = buildLegDurations(decoded, leg.maneuvers ?? [], leg.summary.time);
+    const offsetDur = legDur.map((d) => d + cumTime);
+
     if (allCoords.length > 0 && decoded.length > 0) {
       allCoords.push(...decoded.slice(1));
+      allDurations.push(...offsetDur.slice(1));
     } else {
       allCoords.push(...decoded);
+      allDurations.push(...offsetDur);
     }
+
+    cumTime = offsetDur[offsetDur.length - 1];
   }
 
   // Compute bbox from full-resolution coords before downsampling
@@ -83,13 +153,17 @@ function tripToRoute(trip: ValhallaTrip): ValhallaRoute {
     if (lat > maxLat) maxLat = lat;
   }
 
-  allCoords = downsample(allCoords, MAX_ROUTE_COORDS);
+  // Downsample both coords and durations using the same indices
+  const indices = getDownsampleIndices(allCoords.length, MAX_ROUTE_COORDS);
+  const sampledCoords = indices.map((i) => allCoords[i]);
+  const sampledDurations = indices.map((i) => allDurations[i]);
 
   return {
-    geometry: { type: "LineString", coordinates: allCoords },
+    geometry: { type: "LineString", coordinates: sampledCoords },
     distance: trip.summary.length,
     duration: trip.summary.time,
     bbox: [minLon, minLat, maxLon, maxLat],
+    durations: sampledDurations,
   };
 }
 
