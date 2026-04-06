@@ -178,6 +178,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           setRouteError("route.error");
         }
       } finally {
+        // Null out the ref so clear handlers know no request is in flight
+        if (abortRef.current === controller) abortRef.current = null;
         if (!controller.signal.aborted) setIsRouteLoading(false);
       }
     },
