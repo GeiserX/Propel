@@ -70,56 +70,61 @@ export async function POST(request: NextRequest) {
     async function processStation(
       s: z.infer<typeof stationSchema>,
     ): Promise<DetourResult> {
-      if (totalLen === 0) return { id: s.id, detourMin: 0 };
+      try {
+        if (totalLen === 0) return { id: s.id, detourMin: 0 };
 
-      // Symmetric window: 3% of route length each side.
-      const stationDist = s.routeFraction * totalLen;
-      const windowDist = totalLen * 0.03;
-      const exitDist = Math.max(0, stationDist - windowDist);
-      const rejoinDist = Math.min(totalLen, stationDist + windowDist);
+        // Symmetric window: 3% of route length each side.
+        const stationDist = s.routeFraction * totalLen;
+        const windowDist = totalLen * 0.03;
+        const exitDist = Math.max(0, stationDist - windowDist);
+        const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
-      let exitIdx = distToIndex(exitDist);
-      let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
+        let exitIdx = distToIndex(exitDist);
+        let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
 
-      // If the window collapsed to a single vertex (sparse/downsampled geometry),
-      // widen to guarantee at least two distinct vertices for Valhalla routing.
-      if (exitIdx === rejoinIdx) {
-        exitIdx = Math.max(0, exitIdx - 1);
-        rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
+        // If the window collapsed to a single vertex (sparse/downsampled geometry),
+        // widen to guarantee at least two distinct vertices for Valhalla routing.
         if (exitIdx === rejoinIdx) {
+          exitIdx = Math.max(0, exitIdx - 1);
+          rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
+          if (exitIdx === rejoinIdx) {
+            return { id: s.id, detourMin: -1 };
+          }
+        }
+
+        const exitCoord = routeCoordinates[exitIdx];
+        const rejoinCoord = routeCoordinates[rejoinIdx];
+
+        // Two parallel Valhalla calls: detour leg and direct baseline.
+        // The old linear-interpolation baseline (routeDuration * fraction) assumed
+        // uniform speed, which is wildly wrong on long mixed highway/town routes.
+        const [detourDuration, baselineDuration] = await Promise.all([
+          // exit → station → rejoin
+          getRouteDuration([
+            { lat: exitCoord[1], lon: exitCoord[0] },
+            { lat: s.lat, lon: s.lon },
+            { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+          ]),
+          // exit → rejoin (actual road time for this segment)
+          getRouteDuration([
+            { lat: exitCoord[1], lon: exitCoord[0] },
+            { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+          ]),
+        ]);
+
+        if (detourDuration == null || baselineDuration == null) {
           return { id: s.id, detourMin: -1 };
         }
-      }
 
-      const exitCoord = routeCoordinates[exitIdx];
-      const rejoinCoord = routeCoordinates[rejoinIdx];
+        // Detour = via-station time minus direct time for same segment
+        const detourSec = Math.max(0, detourDuration - baselineDuration);
+        const detourMin = Math.round(detourSec / 6) / 10; // 1 decimal place
 
-      // Two parallel Valhalla calls: detour leg and direct baseline.
-      // The old linear-interpolation baseline (routeDuration * fraction) assumed
-      // uniform speed, which is wildly wrong on long mixed highway/town routes.
-      const [detourDuration, baselineDuration] = await Promise.all([
-        // exit → station → rejoin
-        getRouteDuration([
-          { lat: exitCoord[1], lon: exitCoord[0] },
-          { lat: s.lat, lon: s.lon },
-          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ]),
-        // exit → rejoin (actual road time for this segment)
-        getRouteDuration([
-          { lat: exitCoord[1], lon: exitCoord[0] },
-          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ]),
-      ]);
-
-      if (detourDuration == null || baselineDuration == null) {
+        return { id: s.id, detourMin };
+      } catch (err) {
+        console.warn(`[route-detour] station ${s.id} failed:`, err);
         return { id: s.id, detourMin: -1 };
       }
-
-      // Detour = via-station time minus direct time for same segment
-      const detourSec = Math.max(0, detourDuration - baselineDuration);
-      const detourMin = Math.round(detourSec / 6) / 10; // 1 decimal place
-
-      return { id: s.id, detourMin };
     }
 
     // Run with concurrency limit
