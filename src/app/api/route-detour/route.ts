@@ -6,14 +6,19 @@ const CONCURRENCY = 8;
 
 const stationSchema = z.object({
   id: z.string(),
-  lon: z.number(),
-  lat: z.number(),
-  routeFraction: z.number(),
+  lon: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90),
+  routeFraction: z.number().min(0).max(1),
 });
 
+const coordSchema = z.tuple([
+  z.number().min(-180).max(180),
+  z.number().min(-90).max(90),
+]);
+
 const bodySchema = z.object({
-  stations: z.array(stationSchema).min(1),
-  routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(3000),
+  stations: z.array(stationSchema).min(1).max(500),
+  routeCoordinates: z.array(coordSchema).min(2).max(3000),
 });
 
 export async function POST(request: NextRequest) {
@@ -110,9 +115,13 @@ export async function POST(request: NextRequest) {
 
   const encoder = new TextEncoder();
   const queue = [...stations];
+  const { signal } = request;
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Drain queue on client disconnect so workers stop picking up new stations
+      const onAbort = () => { queue.length = 0; };
+      signal.addEventListener("abort", onAbort);
       try {
         const workers: Promise<void>[] = [];
         for (let i = 0; i < CONCURRENCY; i++) {
@@ -121,6 +130,7 @@ export async function POST(request: NextRequest) {
               while (queue.length > 0) {
                 const station = queue.shift()!;
                 const result = await processStation(station);
+                if (signal.aborted) return;
                 controller.enqueue(encoder.encode(JSON.stringify(result) + "\n"));
               }
             })(),
@@ -130,6 +140,7 @@ export async function POST(request: NextRequest) {
       } catch (err) {
         console.error("[route-detour] stream failed:", err);
       } finally {
+        signal.removeEventListener("abort", onAbort);
         controller.close();
       }
     },
