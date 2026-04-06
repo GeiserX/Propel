@@ -121,7 +121,7 @@ export async function getRoute(
 
 /** Get just the duration for a short route leg (no geometry decoding). */
 export async function getRouteDuration(
-  locations: { lat: number; lon: number }[],
+  locations: { lat: number; lon: number; type?: string }[],
   costing: string = "auto",
   signal?: AbortSignal,
 ): Promise<number | null> {
@@ -131,7 +131,11 @@ export async function getRouteDuration(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      locations: locations.map((l) => ({ lat: l.lat, lon: l.lon })),
+      locations: locations.map((l) => {
+        const loc: Record<string, unknown> = { lat: l.lat, lon: l.lon };
+        if (l.type) loc.type = l.type;
+        return loc;
+      }),
       costing,
       directions_options: { units: "kilometers" },
       directions_type: "none",

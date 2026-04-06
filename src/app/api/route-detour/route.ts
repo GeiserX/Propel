@@ -93,6 +93,20 @@ export async function POST(request: NextRequest) {
       const exitCoord = routeCoordinates[exitIdx];
       const rejoinCoord = routeCoordinates[rejoinIdx];
 
+      // Pin baseline to the actual highway by adding intermediate waypoints
+      // from the original route geometry (type: "through" = pass without stopping)
+      const midPoints: { lat: number; lon: number; type: "through" }[] = [];
+      const span = rejoinIdx - exitIdx;
+      if (span > 3) {
+        for (let i = 1; i <= 3; i++) {
+          const midIdx = exitIdx + Math.round(i * span / 4);
+          if (midIdx > exitIdx && midIdx < rejoinIdx) {
+            const c = routeCoordinates[midIdx];
+            midPoints.push({ lat: c[1], lon: c[0], type: "through" });
+          }
+        }
+      }
+
       const [detourDuration, baselineDuration] = await Promise.all([
         getRouteDuration([
           { lat: exitCoord[1], lon: exitCoord[0] },
@@ -101,6 +115,7 @@ export async function POST(request: NextRequest) {
         ], "auto", signal),
         getRouteDuration([
           { lat: exitCoord[1], lon: exitCoord[0] },
+          ...midPoints,
           { lat: rejoinCoord[1], lon: rejoinCoord[0] },
         ], "auto", signal),
       ]);
