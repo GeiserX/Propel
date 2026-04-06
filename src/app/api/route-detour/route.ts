@@ -14,7 +14,6 @@ const stationSchema = z.object({
 const bodySchema = z.object({
   stations: z.array(stationSchema).min(1).max(50),
   routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(3000),
-  routeDuration: z.number().positive(),
 });
 
 interface DetourResult {
@@ -38,13 +37,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { stations, routeCoordinates, routeDuration } = parseResult.data;
+  const { stations, routeCoordinates } = parseResult.data;
   const numCoords = routeCoordinates.length;
 
   try {
     // Pre-compute cumulative segment lengths for consistent length-based fractions.
     // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
-    // length, so we need length-based — not vertex-index-based — windows and baselines.
+    // length, so we need length-based — not vertex-index-based — exit/rejoin windows.
     const cumLen: number[] = [0];
     for (let i = 1; i < numCoords; i++) {
       const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
@@ -95,26 +94,29 @@ export async function POST(request: NextRequest) {
       const exitCoord = routeCoordinates[exitIdx];
       const rejoinCoord = routeCoordinates[rejoinIdx];
 
-      // Valhalla route: exit → station → rejoin
-      const detourDuration = await getRouteDuration([
-        { lat: exitCoord[1], lon: exitCoord[0] },
-        { lat: s.lat, lon: s.lon },
-        { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+      // Two parallel Valhalla calls: detour leg and direct baseline.
+      // The old linear-interpolation baseline (routeDuration * fraction) assumed
+      // uniform speed, which is wildly wrong on long mixed highway/town routes.
+      const [detourDuration, baselineDuration] = await Promise.all([
+        // exit → station → rejoin
+        getRouteDuration([
+          { lat: exitCoord[1], lon: exitCoord[0] },
+          { lat: s.lat, lon: s.lon },
+          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+        ]),
+        // exit → rejoin (actual road time for this segment)
+        getRouteDuration([
+          { lat: exitCoord[1], lon: exitCoord[0] },
+          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
+        ]),
       ]);
 
-      if (detourDuration == null) {
+      if (detourDuration == null || baselineDuration == null) {
         return { id: s.id, detourMin: -1 };
       }
 
-      // Baseline: time for the actual exit/rejoin vertices Valhalla routes from
-      // (matches widened window when the distance-based window collapsed)
-      const exitFrac = cumLen[exitIdx] / totalLen;
-      const rejoinFrac = cumLen[rejoinIdx] / totalLen;
-      const originalSegmentDuration =
-        routeDuration * (rejoinFrac - exitFrac);
-
-      // Detour = new leg duration - what you'd normally drive for that segment
-      const detourSec = Math.max(0, detourDuration - originalSegmentDuration);
+      // Detour = via-station time minus direct time for same segment
+      const detourSec = Math.max(0, detourDuration - baselineDuration);
       const detourMin = Math.round(detourSec / 6) / 10; // 1 decimal place
 
       return { id: s.id, detourMin };

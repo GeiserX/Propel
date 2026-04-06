@@ -16,7 +16,7 @@ const MAX_WAYPOINTS = 5;
 interface SearchPanelProps {
   mapCenter: [number, number];
   onFlyTo: (coords: [number, number], stationId?: string) => void;
-  onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => void;
+  onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][], options?: { isStationLeg?: boolean }) => void;
   onClearRoute: () => void;
   onSelectRoute?: (index: number) => void;
   routeError?: string | null;
@@ -123,11 +123,11 @@ export function SearchPanel({
 
   // Calculate route with current state
   const calculateRoute = useCallback(
-    (o: Location, d: Location, wps: WaypointEntry[]) => {
+    (o: Location, d: Location, wps: WaypointEntry[], options?: { isStationLeg?: boolean }) => {
       const wpCoords = wps
         .filter((wp) => wp.location != null)
         .map((wp) => wp.location!.coordinates);
-      onRoute(o.coordinates, d.coordinates, wpCoords.length > 0 ? wpCoords : undefined);
+      onRoute(o.coordinates, d.coordinates, wpCoords.length > 0 ? wpCoords : undefined, options);
     },
     [onRoute],
   );
@@ -171,12 +171,16 @@ export function SearchPanel({
   // Track whether waypoints changed in a way that requires route recalculation.
   // Bumped by handlers that modify resolved waypoints (select, remove, station leg).
   const [wpRouteVersion, setWpRouteVersion] = useState(0);
+  // Separate flag: true when the latest bump was a station-leg change
+  const stationLegBumpRef = useRef(false);
 
   useEffect(() => {
     if (wpRouteVersion === 0) return; // skip initial mount
     if (origin && destination) {
       if (phase !== "route") setPhase("route");
-      calculateRoute(origin, destination, waypoints);
+      const isStationLeg = stationLegBumpRef.current;
+      stationLegBumpRef.current = false;
+      calculateRoute(origin, destination, waypoints, isStationLeg ? { isStationLeg: true } : undefined);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wpRouteVersion]);
@@ -361,6 +365,7 @@ export function SearchPanel({
 
         return [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
       });
+      stationLegBumpRef.current = true;
       setWpRouteVersion((v) => v + 1);
     },
     [origin, destination, phase, waypoints, primaryRoute, t],

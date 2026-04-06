@@ -28,6 +28,8 @@ interface MapViewProps {
   clusterStations: boolean;
   corridorKm: number;
   routes: Route[] | null;
+  /** Routes to render on the map (may differ from `routes` during station-leg preview). */
+  displayRoutes?: Route[] | null;
   primaryRouteIndex: number;
   selectedStationId?: string | null;
   onSelectStation?: (id: string | null) => void;
@@ -45,7 +47,7 @@ interface MapViewProps {
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, onStationsErrorChange, detourMap, userLocation, onMapReady },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, displayRoutes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, onStationsErrorChange, detourMap, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -319,11 +321,11 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       style={{ width: "100%", height: "100%" }}
     >
       {showCountryMarkers && <CountryMarkers />}
-      {routes && routes.length > 0 && (
+      {(displayRoutes ?? routes) && (displayRoutes ?? routes)!.length > 0 && (
         <RouteLayer
-          routes={routes}
-          primaryIndex={primaryRouteIndex}
-          onSelectRoute={onSelectRoute}
+          routes={(displayRoutes ?? routes)!}
+          primaryIndex={displayRoutes ? 0 : primaryRouteIndex}
+          onSelectRoute={displayRoutes ? undefined : onSelectRoute}
           beforeLayerId={stationBeforeId}
         />
       )}

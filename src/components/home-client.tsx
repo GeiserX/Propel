@@ -32,6 +32,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [selectedFuel, setSelectedFuel] = useState<FuelType>(defaultFuel as FuelType);
   const [corridorKm, setCorridorKm] = useState(5);
   const [routeState, setRouteState] = useState<RouteState | null>(null);
+  // Station-leg routes: when a user clicks a station, we recalculate the route
+  // through that station but DON'T re-fetch corridor stations. The base routes
+  // in routeState still control corridor fetching.
+  const [stationLegRoutes, setStationLegRoutes] = useState<Route[] | null>(null);
   const [isRouteLoading, setIsRouteLoading] = useState(false);
   const [primaryStations, setPrimaryStations] = useState<StationsGeoJSONCollection>({ type: "FeatureCollection", features: [] });
   const mapRef = useRef<MapRef | null>(null);
@@ -100,11 +104,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   }, []);
 
   const handleRoute = useCallback(
-    async (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => {
+    async (origin: [number, number], destination: [number, number], waypoints?: [number, number][], options?: { isStationLeg?: boolean }) => {
       if (routeAbortRef.current) routeAbortRef.current.abort();
       const controller = new AbortController();
       routeAbortRef.current = controller;
 
+      const isStationLeg = options?.isStationLeg ?? false;
       setIsRouteLoading(true);
       setRouteError(null);
       try {
@@ -116,7 +121,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         });
         if (!res.ok) {
           if (routeAbortRef.current === controller) {
-            setRouteState(null);
+            if (!isStationLeg) setRouteState(null);
+            setStationLegRoutes(null);
             setRouteError("route.error");
           }
           return;
@@ -124,7 +130,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         const data: { routes: Route[] } = await res.json();
         if (data.routes.length === 0) {
           if (routeAbortRef.current === controller) {
-            setRouteState(null);
+            if (!isStationLeg) setRouteState(null);
+            setStationLegRoutes(null);
             setRouteError("route.noRoute");
           }
           return;
@@ -132,10 +139,18 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         // Only write state if this is still the active request
         if (routeAbortRef.current !== controller) return;
 
-        setRouteState({ routes: data.routes, primaryIndex: 0 });
-        // Clear stale corridor data so the detour effect doesn't pair
-        // the new route geometry with the previous corridor's stations
-        setPrimaryStations({ type: "FeatureCollection", features: [] });
+        if (isStationLeg) {
+          // Station-leg: only update the display route, keep base routes
+          // and corridor stations untouched
+          setStationLegRoutes(data.routes);
+        } else {
+          // Normal route: update base routes and trigger corridor fetch
+          setRouteState({ routes: data.routes, primaryIndex: 0 });
+          setStationLegRoutes(null);
+          // Clear stale corridor data so the detour effect doesn't pair
+          // the new route geometry with the previous corridor's stations
+          setPrimaryStations({ type: "FeatureCollection", features: [] });
+        }
 
         const primary = data.routes[0];
         mapRef.current?.fitBounds(
@@ -149,7 +164,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
         if (routeAbortRef.current === controller) {
-          setRouteState(null);
+          if (!isStationLeg) setRouteState(null);
+          setStationLegRoutes(null);
           setRouteError("route.error");
         }
       } finally {
@@ -161,6 +177,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleSelectRoute = useCallback((index: number) => {
     setSelectedStationId(null);
+    setStationLegRoutes(null);
     // Clear stale corridor so detour effect doesn't pair new primary route
     // with previous route's stations while MapView lifts the update
     setPrimaryStations({ type: "FeatureCollection", features: [] });
@@ -184,6 +201,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleClearRoute = useCallback(() => {
     if (routeAbortRef.current) routeAbortRef.current.abort();
     setRouteState(null);
+    setStationLegRoutes(null);
     setIsRouteLoading(false);
     setRouteError(null);
     setPrimaryStations({ type: "FeatureCollection", features: [] });
@@ -231,7 +249,6 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
     (async () => {
       const coords = route.geometry.coordinates as [number, number][];
-      const duration = route.duration;
 
       // Process in batches, sorted by routeFraction (first-visible first)
       for (let i = 0; i < eligible.length; i += DETOUR_BATCH_SIZE) {
@@ -250,7 +267,6 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
                 routeFraction: f.properties.routeFraction,
               })),
               routeCoordinates: coords,
-              routeDuration: duration,
             }),
             signal: controller.signal,
           });
@@ -322,6 +338,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           clusterStations={clusterStations}
           corridorKm={corridorKm}
           routes={routeState?.routes ?? null}
+          displayRoutes={stationLegRoutes ?? routeState?.routes ?? null}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           selectedStationId={selectedStationId}
           onSelectStation={setSelectedStationId}
