@@ -224,14 +224,15 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     if (id == null) {
       if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
       setStationLegRoutes(null);
-      setIsRouteLoading(false);
+      // Only clear loading if no normal route request is in flight
+      if (!routeAbortRef.current) setIsRouteLoading(false);
     }
   }, []);
 
   const handleClearStationLeg = useCallback(() => {
     if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
-    setIsRouteLoading(false);
+    if (!routeAbortRef.current) setIsRouteLoading(false);
   }, []);
 
   const handleFlyTo = useCallback((coords: [number, number], stationId?: string) => {
