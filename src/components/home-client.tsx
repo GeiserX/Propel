@@ -41,6 +41,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const mapRef = useRef<MapRef | null>(null);
 
   const routeAbortRef = useRef<AbortController | null>(null);
+  const stationLegAbortRef = useRef<AbortController | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
@@ -105,11 +106,19 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleRoute = useCallback(
     async (origin: [number, number], destination: [number, number], waypoints?: [number, number][], options?: { isStationLeg?: boolean }) => {
-      if (routeAbortRef.current) routeAbortRef.current.abort();
-      const controller = new AbortController();
-      routeAbortRef.current = controller;
-
       const isStationLeg = options?.isStationLeg ?? false;
+      // Use separate abort refs so clearing a station-leg doesn't cancel a normal route and vice versa
+      const abortRef = isStationLeg ? stationLegAbortRef : routeAbortRef;
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // A normal route supersedes any pending station-leg preview
+      if (!isStationLeg && stationLegAbortRef.current) {
+        stationLegAbortRef.current.abort();
+        stationLegAbortRef.current = null;
+      }
+
       setIsRouteLoading(true);
       setRouteError(null);
       try {
@@ -120,7 +129,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           signal: controller.signal,
         });
         if (!res.ok) {
-          if (routeAbortRef.current === controller) {
+          if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
             setStationLegRoutes(null);
             setRouteError("route.error");
@@ -129,7 +138,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         }
         const data: { routes: Route[] } = await res.json();
         if (data.routes.length === 0) {
-          if (routeAbortRef.current === controller) {
+          if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
             setStationLegRoutes(null);
             setRouteError("route.noRoute");
@@ -137,7 +146,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           return;
         }
         // Only write state if this is still the active request
-        if (routeAbortRef.current !== controller) return;
+        if (abortRef.current !== controller) return;
 
         if (isStationLeg) {
           // Station-leg: only update the display route, keep base routes
@@ -163,7 +172,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
-        if (routeAbortRef.current === controller) {
+        if (abortRef.current === controller) {
           if (!isStationLeg) setRouteState(null);
           setStationLegRoutes(null);
           setRouteError("route.error");
@@ -200,6 +209,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleClearRoute = useCallback(() => {
     if (routeAbortRef.current) routeAbortRef.current.abort();
+    if (stationLegAbortRef.current) stationLegAbortRef.current.abort();
     setRouteState(null);
     setStationLegRoutes(null);
     setIsRouteLoading(false);
@@ -211,10 +221,14 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleSelectStation = useCallback((id: string | null) => {
     setSelectedStationId(id);
     // Deselect clears station-leg preview — search-panel's effect handles waypoint cleanup
-    if (id == null) setStationLegRoutes(null);
+    if (id == null) {
+      if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
+      setStationLegRoutes(null);
+    }
   }, []);
 
   const handleClearStationLeg = useCallback(() => {
+    if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
   }, []);
 
