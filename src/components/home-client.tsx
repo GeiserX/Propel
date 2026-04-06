@@ -11,7 +11,9 @@ import { Navbar } from "@/components/nav/navbar";
 import { MapView } from "@/components/map/map-view";
 import { SearchPanel } from "@/components/search/search-panel";
 
-const DETOUR_BATCH_SIZE = 15;
+// Debounce interval (ms) for batching per-station stream updates into
+// a single React state update, avoiding excessive re-renders.
+const DETOUR_FLUSH_MS = 150;
 
 interface Props {
   defaultFuel: string;
@@ -247,13 +249,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     setPrimaryStations(stations);
   }, []);
 
-  // Progressive Valhalla-based detour calculation
+  // Streaming Valhalla-based detour calculation — results appear per-station
   const detourAbortRef = useRef<AbortController | null>(null);
   const [detourMap, setDetourMap] = useState<Record<string, number>>({});
   const [detoursLoading, setDetoursLoading] = useState(false);
 
   useEffect(() => {
-    // Abort any previous detour fetch
     if (detourAbortRef.current) detourAbortRef.current.abort();
     setDetourMap({});
 
@@ -263,7 +264,6 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       return;
     }
 
-    // All stations with routeFraction (price may be null for EV chargers)
     const eligible = primaryStations.features
       .filter((f) => f.properties.routeFraction != null)
       .sort((a, b) => (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0));
@@ -280,54 +280,74 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     (async () => {
       const coords = route.geometry.coordinates as [number, number][];
 
-      // Process in batches, sorted by routeFraction (first-visible first)
-      for (let i = 0; i < eligible.length; i += DETOUR_BATCH_SIZE) {
-        if (controller.signal.aborted) return;
+      try {
+        const res = await fetch("/api/route-detour", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stations: eligible.map((f) => ({
+              id: f.properties.id,
+              lon: f.geometry.coordinates[0],
+              lat: f.geometry.coordinates[1],
+              routeFraction: f.properties.routeFraction,
+            })),
+            routeCoordinates: coords,
+          }),
+          signal: controller.signal,
+        });
 
-        const batch = eligible.slice(i, i + DETOUR_BATCH_SIZE);
-        try {
-          const res = await fetch("/api/route-detour", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              stations: batch.map((f) => ({
-                id: f.properties.id,
-                lon: f.geometry.coordinates[0],
-                lat: f.geometry.coordinates[1],
-                routeFraction: f.properties.routeFraction,
-              })),
-              routeCoordinates: coords,
-            }),
-            signal: controller.signal,
-          });
-          if (!res.ok) {
-            // Mark all stations in this batch as failed so they don't
-            // pass the detour filter as if they were still loading
-            setDetourMap((prev) => {
-              const next = { ...prev };
-              for (const f of batch) next[f.properties.id] = -1;
-              return next;
-            });
-            continue;
-          }
-          const data: { detours: { id: string; detourMin: number }[] } = await res.json();
-          if (controller.signal.aborted) return;
-
-          setDetourMap((prev) => {
-            const next = { ...prev };
-            for (const d of data.detours) next[d.id] = d.detourMin;
-            return next;
-          });
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") return;
-          // Network/parse failures: mark batch as failed so stations
-          // don't pass maxDetour as "unknown" after loading finishes
-          setDetourMap((prev) => {
-            const next = { ...prev };
-            for (const f of batch) next[f.properties.id] = -1;
-            return next;
-          });
+        if (!res.ok || !res.body) {
+          // Mark all as failed
+          setDetourMap(Object.fromEntries(eligible.map((f) => [f.properties.id, -1])));
+          setDetoursLoading(false);
+          return;
         }
+
+        // Read NDJSON stream, flush to React state every DETOUR_FLUSH_MS
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let pending: Record<string, number> = {};
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+        function flush() {
+          flushTimer = null;
+          const batch = pending;
+          pending = {};
+          setDetourMap((prev) => ({ ...prev, ...batch }));
+        }
+
+        function scheduleFlush() {
+          if (flushTimer == null) {
+            flushTimer = setTimeout(flush, DETOUR_FLUSH_MS);
+          }
+        }
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop()!; // keep incomplete trailing chunk
+
+          for (const line of lines) {
+            if (!line) continue;
+            try {
+              const { id, detourMin } = JSON.parse(line);
+              pending[id] = detourMin;
+            } catch { /* skip malformed line */ }
+          }
+
+          if (Object.keys(pending).length > 0) scheduleFlush();
+        }
+
+        // Flush any remaining results
+        if (flushTimer != null) clearTimeout(flushTimer);
+        if (Object.keys(pending).length > 0) flush();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setDetourMap(Object.fromEntries(eligible.map((f) => [f.properties.id, -1])));
       }
       if (!controller.signal.aborted) setDetoursLoading(false);
     })();

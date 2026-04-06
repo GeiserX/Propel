@@ -781,8 +781,9 @@ export function SearchPanel({
               max={25}
               step={1}
               value={corridorKm}
+              disabled={detoursLoading}
               onChange={(e) => onCorridorKmChange?.(parseInt(e.target.value))}
-              className="mt-1 h-1 w-full cursor-pointer touch-none accent-emerald-500"
+              className={`mt-1 h-1 w-full touch-none accent-emerald-500 ${detoursLoading ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
             />
           </div>
           {stationLegMsg && (
