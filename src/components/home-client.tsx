@@ -208,6 +208,16 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     setSelectedStationId(null);
   }, []);
 
+  const handleSelectStation = useCallback((id: string | null) => {
+    setSelectedStationId(id);
+    // Deselect clears station-leg preview — search-panel's effect handles waypoint cleanup
+    if (id == null) setStationLegRoutes(null);
+  }, []);
+
+  const handleClearStationLeg = useCallback(() => {
+    setStationLegRoutes(null);
+  }, []);
+
   const handleFlyTo = useCallback((coords: [number, number], stationId?: string) => {
     mapRef.current?.flyTo({ center: coords, zoom: 14, duration: 1500 });
     if (stationId) setSelectedStationId(stationId);
@@ -341,7 +351,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           displayRoutes={stationLegRoutes ?? routeState?.routes ?? null}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           selectedStationId={selectedStationId}
-          onSelectStation={setSelectedStationId}
+          onSelectStation={handleSelectStation}
           maxPrice={maxPrice}
           onMaxPriceChange={setMaxPrice}
           maxDetour={maxDetour}
@@ -359,7 +369,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onFlyTo={handleFlyTo}
           onRoute={handleRoute}
           onClearRoute={handleClearRoute}
+          onClearStationLeg={handleClearStationLeg}
           onSelectRoute={handleSelectRoute}
+          selectedStationId={selectedStationId}
           routeError={routeError}
           routes={routeState?.routes ?? null}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}

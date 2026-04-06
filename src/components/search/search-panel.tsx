@@ -18,7 +18,9 @@ interface SearchPanelProps {
   onFlyTo: (coords: [number, number], stationId?: string) => void;
   onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][], options?: { isStationLeg?: boolean }) => void;
   onClearRoute: () => void;
+  onClearStationLeg?: () => void;
   onSelectRoute?: (index: number) => void;
+  selectedStationId?: string | null;
   routeError?: string | null;
   routes: Route[] | null;
   primaryRouteIndex: number;
@@ -53,7 +55,9 @@ export function SearchPanel({
   onFlyTo,
   onRoute,
   onClearRoute,
+  onClearStationLeg,
   onSelectRoute,
+  selectedStationId,
   routeError,
   routes,
   primaryRouteIndex,
@@ -89,6 +93,17 @@ export function SearchPanel({
       setPhase("destination");
     }
   }, [routeError, phase, routes]);
+
+  // When the selected station is cleared, remove station-leg waypoint and preview route
+  useEffect(() => {
+    if (selectedStationId != null) return;
+    setWaypoints((prev) => {
+      if (!prev.some((wp) => wp.isStationLeg)) return prev;
+      return prev.filter((wp) => !wp.isStationLeg);
+    });
+    onClearStationLeg?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearStationLeg is a stable callback
+  }, [selectedStationId]);
 
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
 
@@ -313,10 +328,16 @@ export function SearchPanel({
   // Remove waypoint
   const removeWaypoint = useCallback(
     (wpId: number) => {
-      setWaypoints((prev) => prev.filter((wp) => wp.id !== wpId));
-      setWpRouteVersion((v) => v + 1);
+      const wp = waypoints.find((w) => w.id === wpId);
+      setWaypoints((prev) => prev.filter((w) => w.id !== wpId));
+      if (wp?.isStationLeg) {
+        // Station-leg removal: just clear the preview route, no recalculation
+        onClearStationLeg?.();
+      } else {
+        setWpRouteVersion((v) => v + 1);
+      }
     },
-    [],
+    [waypoints, onClearStationLeg],
   );
 
   // Transient message for station-leg feedback
