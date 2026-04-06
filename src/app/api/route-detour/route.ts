@@ -24,6 +24,7 @@ const coordSchema = z.tuple([
 const bodySchema = z.object({
   stations: z.array(stationSchema).min(1).max(500),
   routeCoordinates: z.array(coordSchema).min(2).max(3000),
+  routeDuration: z.number().min(0),
 });
 
 /** Stream per-station detour times as NDJSON. Each line: `{"id":"…","detourMin":…}` */
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { stations, routeCoordinates } = parseResult.data;
+  const { stations, routeCoordinates, routeDuration } = parseResult.data;
   const numCoords = routeCoordinates.length;
 
   // Pre-compute cumulative segment lengths for consistent length-based fractions.
@@ -75,7 +76,9 @@ export async function POST(request: NextRequest) {
       if (totalLen === 0) return { id: s.id, detourMin: 0 };
 
       const stationDist = s.routeFraction * totalLen;
-      const windowDist = totalLen * 0.03;
+      // Use a wide 15% window so Valhalla can find the truly optimal path
+      // through the station (not constrained to the nearest highway point).
+      const windowDist = totalLen * 0.15;
       const exitDist = Math.max(0, stationDist - windowDist);
       const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
@@ -93,39 +96,61 @@ export async function POST(request: NextRequest) {
       const exitCoord = routeCoordinates[exitIdx];
       const rejoinCoord = routeCoordinates[rejoinIdx];
 
-      // Pin baseline to the actual highway by adding intermediate waypoints
-      // from the original route geometry (type: "through" = pass without stopping)
-      const midPoints: { lat: number; lon: number; type: "through" }[] = [];
-      const span = rejoinIdx - exitIdx;
-      if (span > 3) {
+      // Build the via-station route with through-waypoints pinning the highway
+      // segments before and after the station. This lets Valhalla find the
+      // optimal detour while keeping the highway portions on the correct road.
+      const locations: { lat: number; lon: number; type?: "through" }[] = [];
+
+      // Start: exit point
+      locations.push({ lat: exitCoord[1], lon: exitCoord[0] });
+
+      // Through-waypoints before station (pin highway)
+      const stationIdx = distToIndex(stationDist);
+      const preSeg = stationIdx - exitIdx;
+      if (preSeg > 4) {
         for (let i = 1; i <= 3; i++) {
-          const midIdx = exitIdx + Math.round(i * span / 4);
-          if (midIdx > exitIdx && midIdx < rejoinIdx) {
-            const c = routeCoordinates[midIdx];
-            midPoints.push({ lat: c[1], lon: c[0], type: "through" });
+          const idx = exitIdx + Math.round(i * preSeg / 4);
+          if (idx > exitIdx && idx < stationIdx) {
+            const c = routeCoordinates[idx];
+            locations.push({ lat: c[1], lon: c[0], type: "through" });
           }
         }
       }
 
-      const [detourDuration, baselineDuration] = await Promise.all([
-        getRouteDuration([
-          { lat: exitCoord[1], lon: exitCoord[0] },
-          { lat: s.lat, lon: s.lon },
-          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ], "auto", signal),
-        getRouteDuration([
-          { lat: exitCoord[1], lon: exitCoord[0] },
-          ...midPoints,
-          { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ], "auto", signal),
-      ]);
+      // Station (break point — actual stop)
+      locations.push({ lat: s.lat, lon: s.lon });
 
-      if (detourDuration == null || baselineDuration == null) {
+      // Through-waypoints after station (pin highway)
+      const postSeg = rejoinIdx - stationIdx;
+      if (postSeg > 4) {
+        for (let i = 1; i <= 3; i++) {
+          const idx = stationIdx + Math.round(i * postSeg / 4);
+          if (idx > stationIdx && idx < rejoinIdx) {
+            const c = routeCoordinates[idx];
+            locations.push({ lat: c[1], lon: c[0], type: "through" });
+          }
+        }
+      }
+
+      // End: rejoin point
+      locations.push({ lat: rejoinCoord[1], lon: rejoinCoord[0] });
+
+      // Single Valhalla call: exit → [highway waypoints] → station → [highway waypoints] → rejoin
+      const viaStationDuration = await getRouteDuration(locations, "auto", signal);
+
+      if (viaStationDuration == null) {
         return { id: s.id, detourMin: -1 };
       }
 
-      const detourSec = detourDuration - baselineDuration;
-      // Large negative means baseline was longer than detour — bad baseline match
+      // Baseline estimated from the original route's timing, proportional to
+      // the fraction of route covered by the exit→rejoin window. This is more
+      // accurate than a separate Valhalla call because it uses the actual
+      // route's speed profile instead of an independently-routed segment.
+      const segFraction = (cumLen[rejoinIdx] - cumLen[exitIdx]) / totalLen;
+      const estimatedBaseline = routeDuration * segFraction;
+
+      const detourSec = viaStationDuration - estimatedBaseline;
+      // Large negative means something went wrong
       if (detourSec < -60) return { id: s.id, detourMin: -1 };
       const detourMin = Math.round(Math.max(0, detourSec) / 6) / 10;
 

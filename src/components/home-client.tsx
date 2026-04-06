@@ -343,6 +343,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
                 routeFraction: f.properties.routeFraction,
               })),
               routeCoordinates: coords,
+              routeDuration: route.duration,
             }),
             signal: controller.signal,
           });
@@ -462,6 +463,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onClearStationLeg={handleClearStationLeg}
           onSelectRoute={handleSelectRoute}
           selectedStationId={selectedStationId}
+          onSelectStation={handleSelectStation}
           routeError={routeError}
           routes={routeState?.routes ?? null}
           displayRoutes={stationLegRoutes}
