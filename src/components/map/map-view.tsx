@@ -213,7 +213,6 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStationsErrorChange is a stable setter
     [onStationsErrorChange],
   );
 
@@ -254,6 +253,8 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     if (routes && routes.length > 0) {
       // Cancel any pending bbox debounce so it can't fire after we switch modes
       if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+      // Abort any in-flight bbox fetch so its late completion can't mutate stationsError
+      if (bboxAbortRef.current) { bboxAbortRef.current.abort(); bboxAbortRef.current = null; }
       // Clear stale corridor data immediately so the previous route's stations
       // don't linger on the map while the new fetch is in-flight
       setCorridorPerRoute([]);
