@@ -118,9 +118,10 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
       }
 
       const props = feature.properties as Record<string, unknown>;
-      setSelectedStationId(String(props.id ?? ""));
+      const clickedId = String(props.id ?? "");
+      setSelectedStationId(selectedStationId === clickedId ? null : clickedId);
     },
-    [mapRef, setSelectedStationId],
+    [mapRef, setSelectedStationId, selectedStationId],
   );
 
   useEffect(() => {

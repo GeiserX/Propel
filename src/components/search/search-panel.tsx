@@ -21,6 +21,7 @@ interface SearchPanelProps {
   onClearStationLeg?: () => void;
   onSelectRoute?: (index: number) => void;
   selectedStationId?: string | null;
+  onSelectStation?: (id: string | null) => void;
   routeError?: string | null;
   routes: Route[] | null;
   displayRoutes?: Route[] | null;
@@ -59,6 +60,7 @@ export function SearchPanel({
   onClearStationLeg,
   onSelectRoute,
   selectedStationId,
+  onSelectStation,
   routeError,
   routes,
   displayRoutes,
@@ -853,12 +855,20 @@ export function SearchPanel({
               const isCheapest = sid === cheapestId;
               const isShortest = sid === shortestDetourId;
               const isBalanced = sid === balancedId;
-              const highlight = isCheapest ? "bg-emerald-50 dark:bg-emerald-950/40" : isShortest ? "bg-blue-50 dark:bg-blue-950/40" : isBalanced ? "bg-amber-50 dark:bg-amber-950/40" : "";
+              const isActive = sid === selectedStationId;
+              const highlight = isActive
+                ? "bg-blue-100 ring-1 ring-inset ring-blue-300 dark:bg-blue-900/50 dark:ring-blue-700"
+                : isCheapest ? "bg-emerald-50 dark:bg-emerald-950/40" : isShortest ? "bg-blue-50 dark:bg-blue-950/40" : isBalanced ? "bg-amber-50 dark:bg-amber-950/40" : "";
               return (
                 <button
                   key={sid}
                   onClick={() => {
-                    onFlyTo(station.geometry.coordinates, sid);
+                    if (isActive) {
+                      // Toggle off: deselect station (clears leg preview)
+                      onSelectStation?.(null);
+                    } else {
+                      onFlyTo(station.geometry.coordinates, sid);
+                    }
                     if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
                   }}
                   className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
