@@ -1,3 +1,4 @@
+import { runInNewContext } from "vm";
 import { BaseScraper, type RawFuelPrice, type RawStation } from "./base";
 import type { FuelType } from "../types/station";
 
@@ -522,9 +523,8 @@ export class NorwayScraper extends BaseScraper {
     if (nuxt2Match) {
       console.log(`[${this.source}] Found Nuxt 2 __NUXT__ payload`);
       try {
-        // Use Function constructor to safely eval the JS object literal
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval
-        const payload = new Function(`return (${nuxt2Match[1]})`)();
+        // Sandboxed eval — no access to require/process/global, 1s timeout
+        const payload = runInNewContext(`(${nuxt2Match[1]})`, Object.create(null), { timeout: 1000 });
         return this.extractFromNuxt2Payload(payload);
       } catch (e) {
         console.warn(
