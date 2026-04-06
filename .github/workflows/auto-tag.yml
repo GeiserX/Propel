@@ -38,6 +38,10 @@ jobs:
         run: |
           NEW_TAG="${{ steps.bump.outputs.new_tag }}"
           VERSION="${NEW_TAG#v}"
+          # Tag the current HEAD (the actual code) BEFORE the version bump.
+          # This ensures the tag points to a commit without [skip ci],
+          # so the tag push triggers Docker Publish.
+          git tag "$NEW_TAG"
           CURRENT=$(node -p "require('./package.json').version")
           if [ "$CURRENT" != "$VERSION" ]; then
             npm version "$VERSION" --no-git-tag-version
@@ -47,5 +51,4 @@ jobs:
             git commit -m "chore: bump version to $NEW_TAG [skip ci]"
             git push origin main
           fi
-          git tag "$NEW_TAG"
           git push origin "$NEW_TAG"
