@@ -129,7 +129,13 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ geometry: r.geometry, fuel, corridorKm: km }),
               signal: controller.signal,
-            }).then((res) => (res.ok ? res.json() as Promise<StationsGeoJSONCollection> : EMPTY_COLLECTION)),
+            }).then((res) => {
+              if (!res.ok) {
+                console.warn(`[map] Route stations fetch failed: ${res.status}`);
+                return EMPTY_COLLECTION;
+              }
+              return res.json() as Promise<StationsGeoJSONCollection>;
+            }),
           ),
         );
         // Only write state if this is still the active request

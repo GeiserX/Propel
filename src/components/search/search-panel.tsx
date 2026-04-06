@@ -810,7 +810,9 @@ export function SearchPanel({
                     <div className="flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-gray-400">km {km.toFixed(0)}</span>
                       {hasDetour ? (
-                        detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
+                        detour < 0
+                          ? <span className="text-[10px] text-gray-300">&mdash;</span>
+                          : detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
                       ) : (
                         detoursLoading && <span className="text-[10px] text-gray-300 animate-pulse">...</span>
                       )}

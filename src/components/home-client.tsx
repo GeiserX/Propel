@@ -267,6 +267,13 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           });
         } catch (err) {
           if (err instanceof DOMException && err.name === "AbortError") return;
+          // Network/parse failures: mark batch as failed so stations
+          // don't pass maxDetour as "unknown" after loading finishes
+          setDetourMap((prev) => {
+            const next = { ...prev };
+            for (const f of batch) next[f.properties.id] = -1;
+            return next;
+          });
         }
       }
       if (!controller.signal.aborted) setDetoursLoading(false);
