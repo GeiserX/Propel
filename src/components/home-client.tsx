@@ -114,12 +114,18 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           signal: controller.signal,
         });
         if (!res.ok) {
-          if (routeAbortRef.current === controller) setRouteError("Route calculation failed");
+          if (routeAbortRef.current === controller) {
+            setRouteState(null);
+            setRouteError("Route calculation failed");
+          }
           return;
         }
         const data: { routes: Route[] } = await res.json();
         if (data.routes.length === 0) {
-          if (routeAbortRef.current === controller) setRouteError("No route found");
+          if (routeAbortRef.current === controller) {
+            setRouteState(null);
+            setRouteError("No route found");
+          }
           return;
         }
         // Only write state if this is still the active request
@@ -138,7 +144,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
-        if (routeAbortRef.current === controller) setRouteError("Route calculation failed");
+        if (routeAbortRef.current === controller) {
+          setRouteState(null);
+          setRouteError("Route calculation failed");
+        }
       } finally {
         if (!controller.signal.aborted) setIsRouteLoading(false);
       }
@@ -238,15 +247,22 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
             }),
             signal: controller.signal,
           });
-          if (!res.ok) continue;
+          if (!res.ok) {
+            // Mark all stations in this batch as failed so they don't
+            // pass the detour filter as if they were still loading
+            setDetourMap((prev) => {
+              const next = { ...prev };
+              for (const f of batch) next[f.properties.id] = -1;
+              return next;
+            });
+            continue;
+          }
           const data: { detours: { id: string; detourMin: number }[] } = await res.json();
           if (controller.signal.aborted) return;
 
           setDetourMap((prev) => {
             const next = { ...prev };
-            for (const d of data.detours) {
-              if (d.detourMin >= 0) next[d.id] = d.detourMin;
-            }
+            for (const d of data.detours) next[d.id] = d.detourMin;
             return next;
           });
         } catch (err) {

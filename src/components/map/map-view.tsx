@@ -91,10 +91,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       return real != null ? { ...f, properties: { ...f.properties, detourMin: real } } : f;
     });
     if (maxPrice != null) {
-      features = features.filter((f) => f.properties.price != null && f.properties.price <= maxPrice);
+      features = features.filter((f) => f.properties.price == null || f.properties.price <= maxPrice);
     }
     if (maxDetour != null && routes) {
-      features = features.filter((f) => f.properties.detourMin == null || f.properties.detourMin <= maxDetour);
+      features = features.filter((f) => f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour));
     }
     return { type: "FeatureCollection", features };
   }, [displayStations, detourMap, maxPrice, maxDetour, routes]);

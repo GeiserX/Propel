@@ -193,7 +193,7 @@ export function SearchPanel({
       setOriginText(val);
       if (phase === "route" || phase === "destination") {
         originEditedRef.current = true;
-        if (phase === "route") onClearRoute();
+        onClearRoute();
         setDestText("");
         setDestination(null);
         setOrigin(null);
@@ -212,9 +212,11 @@ export function SearchPanel({
         onClearRoute();
         setWaypoints([]);
         setPhase("destination");
+      } else if (routeError) {
+        onClearRoute();
       }
     },
-    [phase, onClearRoute],
+    [phase, onClearRoute, routeError],
   );
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
@@ -238,10 +240,15 @@ export function SearchPanel({
 
   const handleDestEnter = useCallback(async () => {
     if (!destText.trim() || !origin) return;
-    if (destination) return;
+    if (destination) {
+      // Allow retry (e.g. after route failure) by re-triggering calculation
+      setPhase("route");
+      calculateRoute(origin, destination, waypoints);
+      return;
+    }
     const result = await destRef.current?.geocode(destText.trim());
     if (result) handleDestSelect(result);
-  }, [destText, origin, destination, handleDestSelect]);
+  }, [destText, origin, destination, handleDestSelect, waypoints, calculateRoute]);
 
   const handleWaypointEnter = useCallback(
     async (wpId: number) => {
@@ -376,7 +383,7 @@ export function SearchPanel({
   // appear as "0 min" during progressive loading.
   const stationList = allCorridorStations
     .filter((f) => (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
-      && (maxDetour == null || f.properties.detourMin == null || f.properties.detourMin <= maxDetour))
+      && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour)))
     .sort((a, b) => {
       if (sortBy === "price") {
         const pa = a.properties.price, pb = b.properties.price;
@@ -387,9 +394,8 @@ export function SearchPanel({
       }
       if (sortBy === "detour") {
         const da = a.properties.detourMin, db = b.properties.detourMin;
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
+        if (da == null || da < 0) return (db == null || db < 0) ? 0 : 1;
+        if (db == null || db < 0) return -1;
         return da - db;
       }
       return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
@@ -405,21 +411,22 @@ export function SearchPanel({
   const cheapestId = withPrice.length > 0
     ? withPrice.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
     : null;
-  const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null);
+  const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null && s.properties.detourMin >= 0);
   const shortestDetourId = withKnownDetour.length > 0
     ? withKnownDetour.reduce((best, s) => (s.properties.detourMin! < best.properties.detourMin! ? s : best)).properties.id
     : null;
-  // Balanced: normalize price (0-1) and detour (0-1) within list, pick lowest combined score
-  const balancedId = withKnownDetour.length >= 3 ? (() => {
-    const prices = withKnownDetour.map((s) => s.properties.price!);
-    const detours = withKnownDetour.map((s) => s.properties.detourMin!);
+  // Balanced: normalize price (0-1) and detour (0-1) — requires both values
+  const withPriceAndDetour = stationList.filter((s) => s.properties.price != null && s.properties.detourMin != null && s.properties.detourMin >= 0);
+  const balancedId = withPriceAndDetour.length >= 3 ? (() => {
+    const prices = withPriceAndDetour.map((s) => s.properties.price!);
+    const detours = withPriceAndDetour.map((s) => s.properties.detourMin!);
     const minP = Math.min(...prices), maxP = Math.max(...prices);
     const minD = Math.min(...detours), maxD = Math.max(...detours);
     const rangeP = maxP - minP || 1;
     const rangeD = maxD - minD || 1;
     let bestScore = Infinity;
-    let bestId = withKnownDetour[0].properties.id;
-    for (const s of withKnownDetour) {
+    let bestId = withPriceAndDetour[0].properties.id;
+    for (const s of withPriceAndDetour) {
       const normP = (s.properties.price! - minP) / rangeP;
       const normD = (s.properties.detourMin! - minD) / rangeD;
       const score = normP * 0.6 + normD * 0.4;
@@ -583,6 +590,8 @@ export function SearchPanel({
                   if (phase === "route") {
                     onClearRoute();
                     setPhase("destination");
+                  } else if (routeError) {
+                    onClearRoute();
                   }
                 }}
                 className="pr-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"

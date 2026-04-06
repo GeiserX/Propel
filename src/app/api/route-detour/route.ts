@@ -79,15 +79,21 @@ export async function POST(request: NextRequest) {
       const exitDist = Math.max(0, stationDist - windowDist);
       const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
-      const exitIndex = distToIndex(exitDist);
-      const rejoinIndex = Math.min(numCoords - 1, distToIndex(rejoinDist));
+      let exitIdx = distToIndex(exitDist);
+      let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
 
-      if (exitIndex === rejoinIndex) {
-        return { id: s.id, detourMin: 0 };
+      // If the window collapsed to a single vertex (sparse/downsampled geometry),
+      // widen to guarantee at least two distinct vertices for Valhalla routing.
+      if (exitIdx === rejoinIdx) {
+        exitIdx = Math.max(0, exitIdx - 1);
+        rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
+        if (exitIdx === rejoinIdx) {
+          return { id: s.id, detourMin: -1 };
+        }
       }
 
-      const exitCoord = routeCoordinates[exitIndex];
-      const rejoinCoord = routeCoordinates[rejoinIndex];
+      const exitCoord = routeCoordinates[exitIdx];
+      const rejoinCoord = routeCoordinates[rejoinIdx];
 
       // Valhalla route: exit → station → rejoin
       const detourDuration = await getRouteDuration([
@@ -100,9 +106,10 @@ export async function POST(request: NextRequest) {
         return { id: s.id, detourMin: -1 };
       }
 
-      // Baseline: time for the original route segment, using length-based fractions
-      const exitFrac = exitDist / totalLen;
-      const rejoinFrac = rejoinDist / totalLen;
+      // Baseline: time for the actual exit/rejoin vertices Valhalla routes from
+      // (matches widened window when the distance-based window collapsed)
+      const exitFrac = cumLen[exitIdx] / totalLen;
+      const rejoinFrac = cumLen[rejoinIdx] / totalLen;
       const originalSegmentDuration =
         routeDuration * (rejoinFrac - exitFrac);
 
