@@ -37,12 +37,14 @@ interface MapViewProps {
   onMapMove?: (center: [number, number]) => void;
   onSelectRoute?: (index: number) => void;
   onPrimaryStationsChange?: (stations: StationsGeoJSONCollection) => void;
+  onStationsLoadingChange?: (loading: boolean) => void;
+  detourMap?: Record<string, number>;
   userLocation?: [number, number] | null;
   onMapReady?: () => void;
 }
 
 export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
-  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, userLocation, onMapReady },
+  { selectedFuel, center, zoom, clusterStations, corridorKm, routes, primaryRouteIndex, selectedStationId, onSelectStation, maxPrice, onMaxPriceChange, maxDetour, onMapMove, onSelectRoute, onPrimaryStationsChange, onStationsLoadingChange, detourMap, userLocation, onMapReady },
   ref,
 ) {
   const { mapStyle } = useTheme();
@@ -83,15 +85,19 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   const displayStations = useConvertedStations(rawDisplayStations);
 
   const filteredStations: StationsGeoJSONCollection = useMemo(() => {
-    let features = displayStations.features;
+    // Enrich with detour data so map filtering matches the sidebar
+    let features = displayStations.features.map((f) => {
+      const real = detourMap?.[f.properties.id];
+      return real != null ? { ...f, properties: { ...f.properties, detourMin: real } } : f;
+    });
     if (maxPrice != null) {
-      features = features.filter((f) => f.properties.price != null && f.properties.price <= maxPrice);
+      features = features.filter((f) => f.properties.price == null || f.properties.price <= maxPrice);
     }
     if (maxDetour != null && routes) {
-      features = features.filter((f) => f.properties.detourMin == null || f.properties.detourMin <= maxDetour);
+      features = features.filter((f) => f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour));
     }
     return { type: "FeatureCollection", features };
-  }, [displayStations, maxPrice, maxDetour, routes]);
+  }, [displayStations, detourMap, maxPrice, maxDetour, routes]);
 
   // Convert primary corridor stations for the station list panel
   const rawPrimaryStations = (routes && corridorPerRoute[primaryRouteIndex]) || EMPTY_COLLECTION;
@@ -112,6 +118,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       if (corridorAbortRef.current) corridorAbortRef.current.abort();
       const controller = new AbortController();
       corridorAbortRef.current = controller;
+      onStationsLoadingChange?.(true);
 
       try {
         const km = corridorKmRef.current;
@@ -122,19 +129,33 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ geometry: r.geometry, fuel, corridorKm: km }),
               signal: controller.signal,
-            }).then((res) => (res.ok ? res.json() as Promise<StationsGeoJSONCollection> : EMPTY_COLLECTION)),
+            }).then((res) => {
+              if (!res.ok) {
+                console.warn(`[map] Route stations fetch failed: ${res.status}`);
+                return EMPTY_COLLECTION;
+              }
+              return res.json() as Promise<StationsGeoJSONCollection>;
+            }),
           ),
         );
+        // Only write state if this is still the active request
+        if (corridorAbortRef.current !== controller) return;
         const total = results.reduce((sum, r) => sum + r.features.length, 0);
         const unique = new Set(results.flatMap((r) => r.features.map((f) => f.properties.id))).size;
         console.log(`[map] Route corridors: ${results.map((r) => r.features.length).join("+")} = ${total} stations (${unique} unique) for ${fuel}`);
         setCorridorPerRoute(results);
+        onStationsLoadingChange?.(false);
       } catch (err) {
+        // Only clear loading if this is still the active request;
+        // a superseding fetch will set its own loading=true.
         if (err instanceof DOMException && err.name === "AbortError") return;
+        if (corridorAbortRef.current === controller) {
+          onStationsLoadingChange?.(false);
+        }
         console.error("[map] Failed to fetch route stations:", err);
       }
     },
-    [],
+    [onStationsLoadingChange],
   );
 
   const fetchStations = useCallback(
@@ -223,6 +244,7 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
       // Abort any in-flight corridor fetch so stale results don't leak back
       if (corridorAbortRef.current) { corridorAbortRef.current.abort(); corridorAbortRef.current = null; }
       setCorridorPerRoute([]);
+      onStationsLoadingChange?.(false);
       fetchStations(selectedFuel);
     }
   }, [fetchStations, fetchAllRouteStations, selectedFuel, routes]);
@@ -236,7 +258,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
     corridorDebounceRef.current = setTimeout(() => {
       const r2 = routesRef.current;
-      if (r2 && r2.length > 0) fetchAllRouteStations(selectedFuelRef.current, r2);
+      if (r2 && r2.length > 0) {
+        setCorridorPerRoute([]);
+        fetchAllRouteStations(selectedFuelRef.current, r2);
+      }
     }, 300);
     return () => { if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps

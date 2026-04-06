@@ -13,7 +13,7 @@ const stationSchema = z.object({
 
 const bodySchema = z.object({
   stations: z.array(stationSchema).min(1).max(50),
-  routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2),
+  routeCoordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(3000),
   routeDuration: z.number().positive(),
 });
 
@@ -42,6 +42,28 @@ export async function POST(request: NextRequest) {
   const numCoords = routeCoordinates.length;
 
   try {
+    // Pre-compute cumulative segment lengths for consistent length-based fractions.
+    // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
+    // length, so we need length-based — not vertex-index-based — windows and baselines.
+    const cumLen: number[] = [0];
+    for (let i = 1; i < numCoords; i++) {
+      const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
+      const dy = routeCoordinates[i][1] - routeCoordinates[i - 1][1];
+      cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+    }
+    const totalLen = cumLen[numCoords - 1];
+
+    // Binary-search: find the vertex index where cumLen >= targetLen
+    function distToIndex(targetLen: number): number {
+      let lo = 0, hi = numCoords - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (cumLen[mid] < targetLen) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
     // Process stations with controlled concurrency
     const results: DetourResult[] = [];
     const queue = [...stations];
@@ -49,28 +71,29 @@ export async function POST(request: NextRequest) {
     async function processStation(
       s: z.infer<typeof stationSchema>,
     ): Promise<DetourResult> {
-      // Find exit point on route (where you'd leave to go to the station)
-      const exitIndex = Math.max(
-        0,
-        Math.min(
-          Math.floor(s.routeFraction * (numCoords - 1)),
-          numCoords - 1,
-        ),
-      );
+      if (totalLen === 0) return { id: s.id, detourMin: 0 };
 
-      // Find rejoin point ~5-15km ahead on route (adaptive based on route length)
-      // Use ~1% of route or at least 10 coordinates ahead
-      const offset = Math.max(10, Math.round(numCoords * 0.01));
-      const rejoinIndex = Math.min(exitIndex + offset, numCoords - 1);
+      // Symmetric window: 3% of route length each side.
+      const stationDist = s.routeFraction * totalLen;
+      const windowDist = totalLen * 0.03;
+      const exitDist = Math.max(0, stationDist - windowDist);
+      const rejoinDist = Math.min(totalLen, stationDist + windowDist);
 
-      // If exit and rejoin are the same (near route end), extend backward
-      const actualExit =
-        rejoinIndex === exitIndex
-          ? Math.max(0, exitIndex - offset)
-          : exitIndex;
+      let exitIdx = distToIndex(exitDist);
+      let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
 
-      const exitCoord = routeCoordinates[actualExit];
-      const rejoinCoord = routeCoordinates[rejoinIndex];
+      // If the window collapsed to a single vertex (sparse/downsampled geometry),
+      // widen to guarantee at least two distinct vertices for Valhalla routing.
+      if (exitIdx === rejoinIdx) {
+        exitIdx = Math.max(0, exitIdx - 1);
+        rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
+        if (exitIdx === rejoinIdx) {
+          return { id: s.id, detourMin: -1 };
+        }
+      }
+
+      const exitCoord = routeCoordinates[exitIdx];
+      const rejoinCoord = routeCoordinates[rejoinIdx];
 
       // Valhalla route: exit → station → rejoin
       const detourDuration = await getRouteDuration([
@@ -83,9 +106,10 @@ export async function POST(request: NextRequest) {
         return { id: s.id, detourMin: -1 };
       }
 
-      // Original segment duration (proportional to route fraction covered)
-      const exitFrac = actualExit / (numCoords - 1);
-      const rejoinFrac = rejoinIndex / (numCoords - 1);
+      // Baseline: time for the actual exit/rejoin vertices Valhalla routes from
+      // (matches widened window when the distance-based window collapsed)
+      const exitFrac = cumLen[exitIdx] / totalLen;
+      const rejoinFrac = cumLen[rejoinIdx] / totalLen;
       const originalSegmentDuration =
         routeDuration * (rejoinFrac - exitFrac);
 

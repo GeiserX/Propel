@@ -44,14 +44,19 @@ export function StatsDropdown() {
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const loadStats = useCallback(async () => {
     if (stats) return;
     setLoading(true);
+    setError(false);
     try {
       const res = await fetch("/api/stats");
       if (res.ok) setStats(await res.json());
+      else setError(true);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -155,6 +160,10 @@ export function StatsDropdown() {
                 </a>
               </div>
             </>
+          ) : error ? (
+            <div className="py-6 text-center text-xs text-gray-400">
+              Failed to load statistics
+            </div>
           ) : null}
         </div>
       )}

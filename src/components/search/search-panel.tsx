@@ -19,10 +19,12 @@ interface SearchPanelProps {
   onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => void;
   onClearRoute: () => void;
   onSelectRoute?: (index: number) => void;
+  routeError?: string | null;
   routes: Route[] | null;
   primaryRouteIndex: number;
   isLoading: boolean;
   primaryStations?: StationsGeoJSONCollection;
+  stationsLoading?: boolean;
   detoursLoading?: boolean;
   maxPrice?: number | null;
   maxDetour?: number | null;
@@ -42,6 +44,7 @@ interface WaypointEntry {
   id: number;
   text: string;
   location: Location | null;
+  isStationLeg?: boolean;
 }
 
 export function SearchPanel({
@@ -50,10 +53,12 @@ export function SearchPanel({
   onRoute,
   onClearRoute,
   onSelectRoute,
+  routeError,
   routes,
   primaryRouteIndex,
   isLoading,
   primaryStations,
+  stationsLoading,
   detoursLoading,
   maxPrice,
   maxDetour,
@@ -75,6 +80,13 @@ export function SearchPanel({
   const destRef = useRef<AutocompleteRef>(null);
   const waypointRefs = useRef<Map<number, AutocompleteRef>>(new Map());
   const originEditedRef = useRef(false);
+
+  // Roll back to destination phase if route calculation failed
+  useEffect(() => {
+    if (routeError && phase === "route" && !routes) {
+      setPhase("destination");
+    }
+  }, [routeError, phase, routes]);
 
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
 
@@ -151,19 +163,29 @@ export function SearchPanel({
     [origin, waypoints, calculateRoute],
   );
 
+  // Track whether waypoints changed in a way that requires route recalculation.
+  // Bumped by handlers that modify resolved waypoints (select, remove, station leg).
+  const [wpRouteVersion, setWpRouteVersion] = useState(0);
+
+  useEffect(() => {
+    if (wpRouteVersion === 0) return; // skip initial mount
+    if (origin && destination) {
+      if (phase !== "route") setPhase("route");
+      calculateRoute(origin, destination, waypoints);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wpRouteVersion]);
+
   // Waypoint selected → recalculate if route active
   const handleWaypointSelect = useCallback(
     (wpId: number, result: PhotonResult) => {
       const loc: Location = { label: formatResult(result), coordinates: result.coordinates };
-      setWaypoints((prev) => {
-        const updated = prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc } : wp));
-        if (origin && destination) {
-          calculateRoute(origin, destination, updated);
-        }
-        return updated;
-      });
+      setWaypoints((prev) =>
+        prev.map((wp) => (wp.id === wpId ? { ...wp, text: formatResult(result), location: loc, isStationLeg: false } : wp)),
+      );
+      setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, calculateRoute],
+    [],
   );
 
   const handleOriginChange = useCallback(
@@ -171,7 +193,7 @@ export function SearchPanel({
       setOriginText(val);
       if (phase === "route" || phase === "destination") {
         originEditedRef.current = true;
-        if (phase === "route") onClearRoute();
+        onClearRoute();
         setDestText("");
         setDestination(null);
         setOrigin(null);
@@ -186,13 +208,24 @@ export function SearchPanel({
     (val: string) => {
       setDestText(val);
       setDestination(null);
+      if (phase === "route") {
+        onClearRoute();
+        setWaypoints([]);
+        setPhase("destination");
+      } else if (routeError) {
+        onClearRoute();
+      }
     },
-    [],
+    [phase, onClearRoute, routeError],
   );
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
-    setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null } : wp)));
-  }, []);
+    setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null, isStationLeg: false } : wp)));
+    if (phase === "route") {
+      onClearRoute();
+      setPhase("destination");
+    }
+  }, [phase, onClearRoute]);
 
   const handleOriginEnter = useCallback(async () => {
     if (!originText.trim()) return;
@@ -207,10 +240,15 @@ export function SearchPanel({
 
   const handleDestEnter = useCallback(async () => {
     if (!destText.trim() || !origin) return;
-    if (destination) return;
+    if (destination) {
+      // Allow retry (e.g. after route failure) by re-triggering calculation
+      setPhase("route");
+      calculateRoute(origin, destination, waypoints);
+      return;
+    }
     const result = await destRef.current?.geocode(destText.trim());
     if (result) handleDestSelect(result);
-  }, [destText, origin, destination, handleDestSelect]);
+  }, [destText, origin, destination, handleDestSelect, waypoints, calculateRoute]);
 
   const handleWaypointEnter = useCallback(
     async (wpId: number) => {
@@ -266,15 +304,61 @@ export function SearchPanel({
   // Remove waypoint
   const removeWaypoint = useCallback(
     (wpId: number) => {
-      setWaypoints((prev) => {
-        const updated = prev.filter((wp) => wp.id !== wpId);
-        if (origin && destination && phase === "route") {
-          calculateRoute(origin, destination, updated);
-        }
-        return updated;
-      });
+      setWaypoints((prev) => prev.filter((wp) => wp.id !== wpId));
+      setWpRouteVersion((v) => v + 1);
     },
-    [origin, destination, phase, calculateRoute],
+    [],
+  );
+
+  // Transient message for station-leg feedback
+  const [stationLegMsg, setStationLegMsg] = useState<string | null>(null);
+
+  // Add station as route leg — replaces any previous station leg
+  const handleStationLeg = useCallback(
+    (coords: [number, number], name: string, routeFraction: number) => {
+      if (!origin || !destination || phase !== "route") return;
+
+      // Check cap before entering updater to keep it pure
+      const manualCount = waypoints.filter((wp) => !wp.isStationLeg).length;
+      if (manualCount >= MAX_WAYPOINTS) {
+        setStationLegMsg(t("stations.maxStops"));
+        setTimeout(() => setStationLegMsg(null), 3000);
+        return;
+      }
+
+      const routeCoords = primaryRoute?.geometry.coordinates as [number, number][] | undefined;
+
+      setWaypoints((prev) => {
+        const withoutOld = prev.filter((wp) => !wp.isStationLeg);
+
+        const id = ++waypointIdCounter;
+        const entry: WaypointEntry = {
+          id,
+          text: name,
+          location: { label: name, coordinates: coords },
+          isStationLeg: true,
+        };
+
+        // Find correct insertion position by projecting existing waypoints
+        // onto the route geometry to get their real fractions.
+        let insertIdx = withoutOld.length;
+        if (routeCoords && routeCoords.length >= 2 && withoutOld.length > 0) {
+          for (let i = 0; i < withoutOld.length; i++) {
+            const wp = withoutOld[i];
+            if (!wp.location) continue;
+            const wpFrac = projectOntoRoute(wp.location.coordinates, routeCoords);
+            if (routeFraction < wpFrac) {
+              insertIdx = i;
+              break;
+            }
+          }
+        }
+
+        return [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
+      });
+      setWpRouteVersion((v) => v + 1);
+    },
+    [origin, destination, phase, waypoints, primaryRoute, t],
   );
 
   const showDest = phase === "destination" || phase === "route";
@@ -288,46 +372,63 @@ export function SearchPanel({
     setDestVisible(false);
   }, [showDest]);
 
-  // All stations with price (unfiltered — used to decide if card should show)
-  const allStationsWithPrice = primaryStations?.features
-    .filter((f) => f.properties.routeFraction != null && f.properties.price != null)
+  // All corridor stations (price may be null for EV chargers)
+  const allCorridorStations = primaryStations?.features
+    .filter((f) => f.properties.routeFraction != null)
     ?? [];
 
-  // Station list: filtered by price and detour, sorted by user selection
-  const stationList = allStationsWithPrice
-    .filter((f) => (maxPrice == null || f.properties.price! <= maxPrice)
-      && (maxDetour == null || (f.properties.detourMin ?? 0) <= maxDetour))
+  // Station list: filtered by price and detour, sorted by user selection.
+  // Stations whose detour is still unknown (null) pass the detour filter
+  // and sort to the end when sorting by detour, so they don't optimistically
+  // appear as "0 min" during progressive loading.
+  const stationList = allCorridorStations
+    .filter((f) => (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
+      && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour)))
     .sort((a, b) => {
-      if (sortBy === "price") return a.properties.price! - b.properties.price!;
-      if (sortBy === "detour") return (a.properties.detourMin ?? 0) - (b.properties.detourMin ?? 0);
+      if (sortBy === "price") {
+        const pa = a.properties.price, pb = b.properties.price;
+        if (pa == null && pb == null) return 0;
+        if (pa == null) return 1;
+        if (pb == null) return -1;
+        return pa - pb;
+      }
+      if (sortBy === "detour") {
+        const da = a.properties.detourMin, db = b.properties.detourMin;
+        if (da == null || da < 0) return (db == null || db < 0) ? 0 : 1;
+        if (db == null || db < 0) return -1;
+        return da - db;
+      }
       return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
     });
 
-  // Average price for savings comparison
-  const avgPrice = stationList.length > 0
-    ? stationList.reduce((sum, s) => sum + s.properties.price!, 0) / stationList.length
+  // Average price for savings comparison (EV chargers have no price)
+  const withPrice = stationList.filter((s) => s.properties.price != null);
+  const avgPrice = withPrice.length > 0
+    ? withPrice.reduce((sum, s) => sum + s.properties.price!, 0) / withPrice.length
     : null;
 
   // Badges: cheapest, shortest detour, balanced (only when 2+ stations)
-  const cheapestId = stationList.length > 0
-    ? stationList.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
+  const cheapestId = withPrice.length > 0
+    ? withPrice.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
     : null;
-  const shortestDetourId = stationList.length > 0
-    ? stationList.reduce((best, s) => ((s.properties.detourMin ?? 0) < (best.properties.detourMin ?? 0) ? s : best)).properties.id
+  const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null && s.properties.detourMin >= 0);
+  const shortestDetourId = withKnownDetour.length > 0
+    ? withKnownDetour.reduce((best, s) => (s.properties.detourMin! < best.properties.detourMin! ? s : best)).properties.id
     : null;
-  // Balanced: normalize price (0-1) and detour (0-1) within list, pick lowest combined score
-  const balancedId = stationList.length >= 3 ? (() => {
-    const prices = stationList.map((s) => s.properties.price!);
-    const detours = stationList.map((s) => s.properties.detourMin ?? 0);
+  // Balanced: normalize price (0-1) and detour (0-1) — requires both values
+  const withPriceAndDetour = stationList.filter((s) => s.properties.price != null && s.properties.detourMin != null && s.properties.detourMin >= 0);
+  const balancedId = withPriceAndDetour.length >= 3 ? (() => {
+    const prices = withPriceAndDetour.map((s) => s.properties.price!);
+    const detours = withPriceAndDetour.map((s) => s.properties.detourMin!);
     const minP = Math.min(...prices), maxP = Math.max(...prices);
     const minD = Math.min(...detours), maxD = Math.max(...detours);
     const rangeP = maxP - minP || 1;
     const rangeD = maxD - minD || 1;
     let bestScore = Infinity;
-    let bestId = stationList[0].properties.id;
-    for (const s of stationList) {
+    let bestId = withPriceAndDetour[0].properties.id;
+    for (const s of withPriceAndDetour) {
       const normP = (s.properties.price! - minP) / rangeP;
-      const normD = ((s.properties.detourMin ?? 0) - minD) / rangeD;
+      const normD = (s.properties.detourMin! - minD) / rangeD;
       const score = normP * 0.6 + normD * 0.4;
       if (score < bestScore) { bestScore = score; bestId = s.properties.id; }
     }
@@ -406,9 +507,16 @@ export function SearchPanel({
               {/* Waypoint row */}
               <div className="flex items-center">
                 <div className="flex w-10 shrink-0 items-center justify-center">
-                  <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                    {idx + 1}
-                  </div>
+                  {wp.isStationLeg ? (
+                    <svg className="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                    </svg>
+                  ) : (
+                    <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      {idx + 1}
+                    </div>
+                  )}
                 </div>
                 <AutocompleteInput
                   ref={(el) => {
@@ -478,9 +586,12 @@ export function SearchPanel({
                 onClick={() => {
                   setDestText("");
                   setDestination(null);
+                  setWaypoints([]);
                   if (phase === "route") {
                     onClearRoute();
                     setPhase("destination");
+                  } else if (routeError) {
+                    onClearRoute();
                   }
                 }}
                 className="pr-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -529,6 +640,13 @@ export function SearchPanel({
         )}
       </div>
 
+      {/* Route error */}
+      {routeError && !routes && (
+        <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-center text-xs text-red-600 shadow-lg dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+          {t(routeError)}
+        </div>
+      )}
+
       {/* Route info + alternatives — hidden when collapsed */}
       {primaryRoute && !collapsed && (
         <div className="mt-2 shrink-0 rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
@@ -557,8 +675,25 @@ export function SearchPanel({
         </div>
       )}
 
+      {/* Loading spinner while stations are being fetched */}
+      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !collapsed && (
+        <div className="mt-2 flex items-center justify-center rounded-xl border border-black/[0.08] bg-white/70 px-4 py-6 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500" />
+            <span className="text-xs text-gray-400">{t("stations.loading")}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state when corridor loading finishes with zero stations */}
+      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
+        <div className="mt-2 rounded-xl border border-black/[0.08] bg-white/70 px-4 py-4 text-center shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
+          <span className="text-xs text-gray-400">{t("stations.noStations")}</span>
+        </div>
+      )}
+
       {/* Station list along route — hidden when collapsed */}
-      {phase === "route" && allStationsWithPrice.length > 0 && !collapsed && (
+      {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
         <div className="mt-2 flex min-h-0 flex-1 flex-col rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
           <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-gray-700">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -619,6 +754,11 @@ export function SearchPanel({
               className="mt-1 h-1 w-full cursor-pointer touch-none accent-emerald-500"
             />
           </div>
+          {stationLegMsg && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+              {stationLegMsg}
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto sm:max-h-[200px]">
             {stationList.length === 0 ? (
               <div className="px-4 py-4 text-center text-xs text-gray-400">
@@ -638,7 +778,11 @@ export function SearchPanel({
               return (
                 <button
                   key={sid}
-                  onClick={() => { onFlyTo(station.geometry.coordinates, sid); if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true); }}
+                  onClick={() => {
+                    onFlyTo(station.geometry.coordinates, sid);
+                    handleStationLeg(station.geometry.coordinates, station.properties.brand ?? station.properties.name, station.properties.routeFraction ?? 0);
+                    if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
+                  }}
                   className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
                 >
                   <div className="min-w-0 flex-1">
@@ -673,7 +817,9 @@ export function SearchPanel({
                     <div className="flex items-center justify-end gap-1.5">
                       <span className="text-[10px] text-gray-400">km {km.toFixed(0)}</span>
                       {hasDetour ? (
-                        detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
+                        detour < 0
+                          ? <span className="text-[10px] text-gray-300">&mdash;</span>
+                          : detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
                       ) : (
                         detoursLoading && <span className="text-[10px] text-gray-300 animate-pulse">...</span>
                       )}
@@ -712,4 +858,37 @@ function formatDuration(seconds: number): string {
   const m = Math.round((seconds % 3600) / 60);
   if (h === 0) return `${m} min`;
   return `${h} h ${m} min`;
+}
+
+/** Project a point onto a LineString and return its fraction (0–1) along the line. */
+function projectOntoRoute(point: [number, number], coords: [number, number][]): number {
+  if (coords.length < 2) return 0;
+  let bestDist = Infinity;
+  let bestFrac = 0;
+  let cumLen = 0;
+  const segLens: number[] = [];
+  for (let i = 1; i < coords.length; i++) {
+    const dx = coords[i][0] - coords[i - 1][0];
+    const dy = coords[i][1] - coords[i - 1][1];
+    segLens.push(Math.sqrt(dx * dx + dy * dy));
+  }
+  const totalLen = segLens.reduce((s, l) => s + l, 0);
+  if (totalLen === 0) return 0;
+
+  for (let i = 0; i < segLens.length; i++) {
+    const ax = coords[i][0], ay = coords[i][1];
+    const bx = coords[i + 1][0], by = coords[i + 1][1];
+    const abx = bx - ax, aby = by - ay;
+    const apx = point[0] - ax, apy = point[1] - ay;
+    const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / (abx * abx + aby * aby || 1)));
+    const px = ax + t * abx, py = ay + t * aby;
+    const dx = point[0] - px, dy = point[1] - py;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) {
+      bestDist = d;
+      bestFrac = (cumLen + t * segLens[i]) / totalLen;
+    }
+    cumLen += segLens[i];
+  }
+  return bestFrac;
 }

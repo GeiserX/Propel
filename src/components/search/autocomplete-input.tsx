@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { PhotonResult } from "@/lib/photon";
+import { useI18n } from "@/lib/i18n";
 
 export interface AutocompleteRef {
   geocode: (query: string) => Promise<PhotonResult | null>;
@@ -40,6 +41,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
   locationLabel,
   onLocationSelect,
 }, ref) {
+  const { t } = useI18n();
   const [results, setResults] = useState<PhotonResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -230,7 +232,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
       ) : null}
       {noResults && !isOpen && value.length >= 2 && (
         <div className="absolute z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 shadow-lg dark:border-gray-700 dark:bg-gray-800">
-          No results found
+          {t("search.noResults")}
         </div>
       )}
     </div>

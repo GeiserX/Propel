@@ -41,6 +41,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   const [maxDetour, setMaxDetour] = useState<number | null>(null);
+  const [stationsLoading, setStationsLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   // Geolocation state (lifted so navbar has the button, map has the marker)
   const [geoState, setGeoState] = useState<GeoState>("idle");
@@ -103,6 +105,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       routeAbortRef.current = controller;
 
       setIsRouteLoading(true);
+      setRouteError(null);
       try {
         const res = await fetch("/api/route", {
           method: "POST",
@@ -110,11 +113,28 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           body: JSON.stringify({ origin, destination, waypoints }),
           signal: controller.signal,
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (routeAbortRef.current === controller) {
+            setRouteState(null);
+            setRouteError("route.error");
+          }
+          return;
+        }
         const data: { routes: Route[] } = await res.json();
-        if (data.routes.length === 0) return;
+        if (data.routes.length === 0) {
+          if (routeAbortRef.current === controller) {
+            setRouteState(null);
+            setRouteError("route.noRoute");
+          }
+          return;
+        }
+        // Only write state if this is still the active request
+        if (routeAbortRef.current !== controller) return;
 
         setRouteState({ routes: data.routes, primaryIndex: 0 });
+        // Clear stale corridor data so the detour effect doesn't pair
+        // the new route geometry with the previous corridor's stations
+        setPrimaryStations({ type: "FeatureCollection", features: [] });
 
         const primary = data.routes[0];
         mapRef.current?.fitBounds(
@@ -127,6 +147,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
+        if (routeAbortRef.current === controller) {
+          setRouteState(null);
+          setRouteError("route.error");
+        }
       } finally {
         if (!controller.signal.aborted) setIsRouteLoading(false);
       }
@@ -157,6 +181,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     if (routeAbortRef.current) routeAbortRef.current.abort();
     setRouteState(null);
     setIsRouteLoading(false);
+    setRouteError(null);
     setPrimaryStations({ type: "FeatureCollection", features: [] });
     setSelectedStationId(null);
   }, []);
@@ -186,9 +211,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       return;
     }
 
-    // Only stations with price + routeFraction (same as sidebar filter)
+    // All stations with routeFraction (price may be null for EV chargers)
     const eligible = primaryStations.features
-      .filter((f) => f.properties.routeFraction != null && f.properties.price != null)
+      .filter((f) => f.properties.routeFraction != null)
       .sort((a, b) => (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0));
 
     if (eligible.length === 0) {
@@ -225,19 +250,33 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
             }),
             signal: controller.signal,
           });
-          if (!res.ok) continue;
+          if (!res.ok) {
+            // Mark all stations in this batch as failed so they don't
+            // pass the detour filter as if they were still loading
+            setDetourMap((prev) => {
+              const next = { ...prev };
+              for (const f of batch) next[f.properties.id] = -1;
+              return next;
+            });
+            continue;
+          }
           const data: { detours: { id: string; detourMin: number }[] } = await res.json();
           if (controller.signal.aborted) return;
 
           setDetourMap((prev) => {
             const next = { ...prev };
-            for (const d of data.detours) {
-              if (d.detourMin >= 0) next[d.id] = d.detourMin;
-            }
+            for (const d of data.detours) next[d.id] = d.detourMin;
             return next;
           });
         } catch (err) {
           if (err instanceof DOMException && err.name === "AbortError") return;
+          // Network/parse failures: mark batch as failed so stations
+          // don't pass maxDetour as "unknown" after loading finishes
+          setDetourMap((prev) => {
+            const next = { ...prev };
+            for (const f of batch) next[f.properties.id] = -1;
+            return next;
+          });
         }
       }
       if (!controller.signal.aborted) setDetoursLoading(false);
@@ -288,6 +327,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onMapMove={handleMapMove}
           onSelectRoute={handleSelectRoute}
           onPrimaryStationsChange={handlePrimaryStationsChange}
+          onStationsLoadingChange={setStationsLoading}
+          detourMap={detourMap}
           userLocation={userLocation}
           onMapReady={handleMapReady}
         />
@@ -297,10 +338,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onRoute={handleRoute}
           onClearRoute={handleClearRoute}
           onSelectRoute={handleSelectRoute}
+          routeError={routeError}
           routes={routeState?.routes ?? null}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           isLoading={isRouteLoading}
           primaryStations={enrichedStations}
+          stationsLoading={stationsLoading}
           detoursLoading={detoursLoading}
           maxPrice={maxPrice}
           maxDetour={maxDetour}
