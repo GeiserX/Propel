@@ -4,6 +4,11 @@ import { getRouteDuration } from "@/lib/valhalla";
 
 const CONCURRENCY = 8;
 
+const detourResultSchema = z.object({
+  id: z.string(),
+  detourMin: z.number(),
+});
+
 const stationSchema = z.object({
   id: z.string(),
   lon: z.number().min(-180).max(180),
@@ -21,6 +26,7 @@ const bodySchema = z.object({
   routeCoordinates: z.array(coordSchema).min(2).max(3000),
 });
 
+/** Stream per-station detour times as NDJSON. Each line: `{"id":"…","detourMin":…}` */
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
@@ -92,11 +98,11 @@ export async function POST(request: NextRequest) {
           { lat: exitCoord[1], lon: exitCoord[0] },
           { lat: s.lat, lon: s.lon },
           { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ]),
+        ], "auto", signal),
         getRouteDuration([
           { lat: exitCoord[1], lon: exitCoord[0] },
           { lat: rejoinCoord[1], lon: rejoinCoord[0] },
-        ]),
+        ], "auto", signal),
       ]);
 
       if (detourDuration == null || baselineDuration == null) {
@@ -129,7 +135,7 @@ export async function POST(request: NextRequest) {
             (async () => {
               while (queue.length > 0) {
                 const station = queue.shift()!;
-                const result = await processStation(station);
+                const result = detourResultSchema.parse(await processStation(station));
                 if (signal.aborted) return;
                 controller.enqueue(encoder.encode(JSON.stringify(result) + "\n"));
               }
