@@ -135,6 +135,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (!res.ok) {
           if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
+            else setSelectedStationId(null);
             setStationLegRoutes(null);
             setRouteError("route.error");
           }
@@ -144,6 +145,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (data.routes.length === 0) {
           if (abortRef.current === controller) {
             if (!isStationLeg) setRouteState(null);
+            else setSelectedStationId(null);
             setStationLegRoutes(null);
             setRouteError("route.noRoute");
           }
@@ -178,6 +180,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         console.error("Route calculation failed:", err);
         if (abortRef.current === controller) {
           if (!isStationLeg) setRouteState(null);
+          else setSelectedStationId(null);
           setStationLegRoutes(null);
           setRouteError("route.error");
         }
@@ -239,6 +242,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleClearStationLeg = useCallback(() => {
     if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
+    setSelectedStationId(null);
     if (!routeAbortRef.current) setIsRouteLoading(false);
   }, []);
 
