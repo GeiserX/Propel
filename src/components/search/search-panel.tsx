@@ -16,9 +16,11 @@ const MAX_WAYPOINTS = 5;
 interface SearchPanelProps {
   mapCenter: [number, number];
   onFlyTo: (coords: [number, number], stationId?: string) => void;
-  onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][]) => void;
+  onRoute: (origin: [number, number], destination: [number, number], waypoints?: [number, number][], options?: { isStationLeg?: boolean }) => void;
   onClearRoute: () => void;
+  onClearStationLeg?: () => void;
   onSelectRoute?: (index: number) => void;
+  selectedStationId?: string | null;
   routeError?: string | null;
   routes: Route[] | null;
   primaryRouteIndex: number;
@@ -53,7 +55,9 @@ export function SearchPanel({
   onFlyTo,
   onRoute,
   onClearRoute,
+  onClearStationLeg,
   onSelectRoute,
+  selectedStationId,
   routeError,
   routes,
   primaryRouteIndex,
@@ -90,6 +94,17 @@ export function SearchPanel({
     }
   }, [routeError, phase, routes]);
 
+  // When the selected station is cleared, remove station-leg waypoint and preview route
+  useEffect(() => {
+    if (selectedStationId != null) return;
+    setWaypoints((prev) => {
+      if (!prev.some((wp) => wp.isStationLeg)) return prev;
+      return prev.filter((wp) => !wp.isStationLeg);
+    });
+    onClearStationLeg?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearStationLeg is a stable callback
+  }, [selectedStationId]);
+
   const primaryRoute = routes?.[primaryRouteIndex] ?? null;
 
   // "My location" handler — triggers geolocation and sets as origin
@@ -123,11 +138,11 @@ export function SearchPanel({
 
   // Calculate route with current state
   const calculateRoute = useCallback(
-    (o: Location, d: Location, wps: WaypointEntry[]) => {
+    (o: Location, d: Location, wps: WaypointEntry[], options?: { isStationLeg?: boolean }) => {
       const wpCoords = wps
         .filter((wp) => wp.location != null)
         .map((wp) => wp.location!.coordinates);
-      onRoute(o.coordinates, d.coordinates, wpCoords.length > 0 ? wpCoords : undefined);
+      onRoute(o.coordinates, d.coordinates, wpCoords.length > 0 ? wpCoords : undefined, options);
     },
     [onRoute],
   );
@@ -171,12 +186,16 @@ export function SearchPanel({
   // Track whether waypoints changed in a way that requires route recalculation.
   // Bumped by handlers that modify resolved waypoints (select, remove, station leg).
   const [wpRouteVersion, setWpRouteVersion] = useState(0);
+  // Separate flag: true when the latest bump was a station-leg change
+  const stationLegBumpRef = useRef(false);
 
   useEffect(() => {
     if (wpRouteVersion === 0) return; // skip initial mount
     if (origin && destination) {
       if (phase !== "route") setPhase("route");
-      calculateRoute(origin, destination, waypoints);
+      const isStationLeg = stationLegBumpRef.current;
+      stationLegBumpRef.current = false;
+      calculateRoute(origin, destination, waypoints, isStationLeg ? { isStationLeg: true } : undefined);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wpRouteVersion]);
@@ -309,10 +328,16 @@ export function SearchPanel({
   // Remove waypoint
   const removeWaypoint = useCallback(
     (wpId: number) => {
-      setWaypoints((prev) => prev.filter((wp) => wp.id !== wpId));
-      setWpRouteVersion((v) => v + 1);
+      const wp = waypoints.find((w) => w.id === wpId);
+      setWaypoints((prev) => prev.filter((w) => w.id !== wpId));
+      if (wp?.isStationLeg) {
+        // Station-leg removal: just clear the preview route, no recalculation
+        onClearStationLeg?.();
+      } else {
+        setWpRouteVersion((v) => v + 1);
+      }
     },
-    [],
+    [waypoints, onClearStationLeg],
   );
 
   // Transient message for station-leg feedback
@@ -361,6 +386,7 @@ export function SearchPanel({
 
         return [...withoutOld.slice(0, insertIdx), entry, ...withoutOld.slice(insertIdx)];
       });
+      stationLegBumpRef.current = true;
       setWpRouteVersion((v) => v + 1);
     },
     [origin, destination, phase, waypoints, primaryRoute, t],
