@@ -116,7 +116,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (!res.ok) {
           if (routeAbortRef.current === controller) {
             setRouteState(null);
-            setRouteError("Route calculation failed");
+            setRouteError("route.error");
           }
           return;
         }
@@ -124,7 +124,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (data.routes.length === 0) {
           if (routeAbortRef.current === controller) {
             setRouteState(null);
-            setRouteError("No route found");
+            setRouteError("route.noRoute");
           }
           return;
         }
@@ -132,6 +132,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         if (routeAbortRef.current !== controller) return;
 
         setRouteState({ routes: data.routes, primaryIndex: 0 });
+        // Clear stale corridor data so the detour effect doesn't pair
+        // the new route geometry with the previous corridor's stations
+        setPrimaryStations({ type: "FeatureCollection", features: [] });
 
         const primary = data.routes[0];
         mapRef.current?.fitBounds(
@@ -146,7 +149,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         console.error("Route calculation failed:", err);
         if (routeAbortRef.current === controller) {
           setRouteState(null);
-          setRouteError("Route calculation failed");
+          setRouteError("route.error");
         }
       } finally {
         if (!controller.signal.aborted) setIsRouteLoading(false);

@@ -643,7 +643,7 @@ export function SearchPanel({
       {/* Route error */}
       {routeError && !routes && (
         <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-center text-xs text-red-600 shadow-lg dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
-          {routeError}
+          {t(routeError)}
         </div>
       )}
 
@@ -688,7 +688,7 @@ export function SearchPanel({
       {/* Empty state when corridor loading finishes with zero stations */}
       {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
         <div className="mt-2 rounded-xl border border-black/[0.08] bg-white/70 px-4 py-4 text-center shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
-          <span className="text-xs text-gray-400">{t("stations.empty")}</span>
+          <span className="text-xs text-gray-400">{t("stations.noStations")}</span>
         </div>
       )}
 
