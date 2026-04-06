@@ -258,7 +258,10 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
     if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current);
     corridorDebounceRef.current = setTimeout(() => {
       const r2 = routesRef.current;
-      if (r2 && r2.length > 0) fetchAllRouteStations(selectedFuelRef.current, r2);
+      if (r2 && r2.length > 0) {
+        setCorridorPerRoute([]);
+        fetchAllRouteStations(selectedFuelRef.current, r2);
+      }
     }, 300);
     return () => { if (corridorDebounceRef.current) clearTimeout(corridorDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps

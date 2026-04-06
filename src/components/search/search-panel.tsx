@@ -685,6 +685,13 @@ export function SearchPanel({
         </div>
       )}
 
+      {/* Empty state when corridor loading finishes with zero stations */}
+      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
+        <div className="mt-2 rounded-xl border border-black/[0.08] bg-white/70 px-4 py-4 text-center shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
+          <span className="text-xs text-gray-400">{t("stations.empty")}</span>
+        </div>
+      )}
+
       {/* Station list along route — hidden when collapsed */}
       {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
         <div className="mt-2 flex min-h-0 flex-1 flex-col rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
