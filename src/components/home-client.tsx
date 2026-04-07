@@ -167,14 +167,18 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           setPrimaryStations({ type: "FeatureCollection", features: [] });
         }
 
-        const primary = data.routes[0];
-        mapRef.current?.fitBounds(
-          [
-            [primary.bbox[0], primary.bbox[1]],
-            [primary.bbox[2], primary.bbox[3]],
-          ],
-          { padding: 60, duration: 1000 },
-        );
+        // Only fit bounds for normal route calculations.
+        // Station-leg routes keep the map centered on the station (from flyTo).
+        if (!isStationLeg) {
+          const primary = data.routes[0];
+          mapRef.current?.fitBounds(
+            [
+              [primary.bbox[0], primary.bbox[1]],
+              [primary.bbox[2], primary.bbox[3]],
+            ],
+            { padding: 60, duration: 1000 },
+          );
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Route calculation failed:", err);
@@ -236,15 +240,31 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
       setStationLegRoutes(null);
       // Only clear loading if no normal route request is in flight
       if (!routeAbortRef.current) setIsRouteLoading(false);
+      // Restore map to full route view
+      const route = routeState?.routes[routeState.primaryIndex];
+      if (route) {
+        mapRef.current?.fitBounds(
+          [[route.bbox[0], route.bbox[1]], [route.bbox[2], route.bbox[3]]],
+          { padding: 60, duration: 800 },
+        );
+      }
     }
-  }, []);
+  }, [routeState]);
 
   const handleClearStationLeg = useCallback(() => {
     if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
     setStationLegRoutes(null);
     setSelectedStationId(null);
     if (!routeAbortRef.current) setIsRouteLoading(false);
-  }, []);
+    // Restore map to full route view
+    const route = routeState?.routes[routeState.primaryIndex];
+    if (route) {
+      mapRef.current?.fitBounds(
+        [[route.bbox[0], route.bbox[1]], [route.bbox[2], route.bbox[3]]],
+        { padding: 60, duration: 800 },
+      );
+    }
+  }, [routeState]);
 
   const handleFlyTo = useCallback((coords: [number, number], stationId?: string) => {
     mapRef.current?.flyTo({ center: coords, zoom: 14, duration: 1500 });
@@ -340,10 +360,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
                 id: f.properties.id,
                 lon: f.geometry.coordinates[0],
                 lat: f.geometry.coordinates[1],
-                routeFraction: f.properties.routeFraction,
               })),
-              routeCoordinates: coords,
-              routeDurations: route.durations ?? [],
+              origin: coords[0],
+              destination: coords[coords.length - 1],
+              routeDuration: route.duration,
             }),
             signal: controller.signal,
           });

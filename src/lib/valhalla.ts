@@ -215,8 +215,8 @@ export async function getRouteDuration(
       directions_type: "none",
     }),
     signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
-      : AbortSignal.timeout(5000),
+      ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
+      : AbortSignal.timeout(10000),
   });
 
   if (!res.ok) return null;

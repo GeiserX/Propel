@@ -13,7 +13,6 @@ const stationSchema = z.object({
   id: z.string(),
   lon: z.number().min(-180).max(180),
   lat: z.number().min(-90).max(90),
-  routeFraction: z.number().min(0).max(1),
 });
 
 const coordSchema = z.tuple([
@@ -23,8 +22,9 @@ const coordSchema = z.tuple([
 
 const bodySchema = z.object({
   stations: z.array(stationSchema).min(1).max(500),
-  routeCoordinates: z.array(coordSchema).min(2).max(3000),
-  routeDurations: z.array(z.number().min(0)),
+  origin: coordSchema,
+  destination: coordSchema,
+  routeDuration: z.number().min(0),
 });
 
 /** Stream per-station detour times as NDJSON. Each line: `{"id":"…","detourMin":…}` */
@@ -44,114 +44,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { stations, routeCoordinates, routeDurations } = parseResult.data;
-  const numCoords = routeCoordinates.length;
-
-  // Pre-compute cumulative segment lengths for consistent length-based fractions.
-  // routeFraction from PostGIS (ST_LineLocatePoint) is a fraction of total line
-  // length, so we need length-based — not vertex-index-based — exit/rejoin windows.
-  const cumLen: number[] = [0];
-  for (let i = 1; i < numCoords; i++) {
-    const dx = routeCoordinates[i][0] - routeCoordinates[i - 1][0];
-    const dy = routeCoordinates[i][1] - routeCoordinates[i - 1][1];
-    cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
-  }
-  const totalLen = cumLen[numCoords - 1];
-
-  // Binary-search: find the vertex index where cumLen >= targetLen
-  function distToIndex(targetLen: number): number {
-    let lo = 0, hi = numCoords - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (cumLen[mid] < targetLen) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  }
+  const { stations, origin, destination, routeDuration } = parseResult.data;
 
   async function processStation(
     s: z.infer<typeof stationSchema>,
   ): Promise<{ id: string; detourMin: number }> {
     try {
-      if (totalLen === 0) return { id: s.id, detourMin: 0 };
+      // Full-route detour: route(origin → station → destination) - original duration.
+      // This computes the exact same delta the preview shows when a user clicks
+      // a station, guaranteeing the badge matches the preview.
+      const fullDuration = await getRouteDuration([
+        { lat: origin[1], lon: origin[0] },
+        { lat: s.lat, lon: s.lon },
+        { lat: destination[1], lon: destination[0] },
+      ], "auto", signal);
 
-      const stationDist = s.routeFraction * totalLen;
-      // Use a wide 15% window so Valhalla can find the truly optimal path
-      // through the station (not constrained to the nearest highway point).
-      const windowDist = totalLen * 0.15;
-      const exitDist = Math.max(0, stationDist - windowDist);
-      const rejoinDist = Math.min(totalLen, stationDist + windowDist);
+      if (fullDuration == null) return { id: s.id, detourMin: -1 };
 
-      let exitIdx = distToIndex(exitDist);
-      let rejoinIdx = Math.min(numCoords - 1, distToIndex(rejoinDist));
-
-      if (exitIdx === rejoinIdx) {
-        exitIdx = Math.max(0, exitIdx - 1);
-        rejoinIdx = Math.min(numCoords - 1, rejoinIdx + 1);
-        if (exitIdx === rejoinIdx) {
-          return { id: s.id, detourMin: -1 };
-        }
-      }
-
-      const exitCoord = routeCoordinates[exitIdx];
-      const rejoinCoord = routeCoordinates[rejoinIdx];
-
-      // Build the via-station route with through-waypoints pinning the highway
-      // segments before and after the station. This lets Valhalla find the
-      // optimal detour while keeping the highway portions on the correct road.
-      const locations: { lat: number; lon: number; type?: "through" }[] = [];
-
-      // Start: exit point
-      locations.push({ lat: exitCoord[1], lon: exitCoord[0] });
-
-      // Through-waypoints before station (pin highway)
-      const stationIdx = distToIndex(stationDist);
-      const preSeg = stationIdx - exitIdx;
-      if (preSeg > 4) {
-        for (let i = 1; i <= 3; i++) {
-          const idx = exitIdx + Math.round(i * preSeg / 4);
-          if (idx > exitIdx && idx < stationIdx) {
-            const c = routeCoordinates[idx];
-            locations.push({ lat: c[1], lon: c[0], type: "through" });
-          }
-        }
-      }
-
-      // Station (break point — actual stop)
-      locations.push({ lat: s.lat, lon: s.lon });
-
-      // Through-waypoints after station (pin highway)
-      const postSeg = rejoinIdx - stationIdx;
-      if (postSeg > 4) {
-        for (let i = 1; i <= 3; i++) {
-          const idx = stationIdx + Math.round(i * postSeg / 4);
-          if (idx > stationIdx && idx < rejoinIdx) {
-            const c = routeCoordinates[idx];
-            locations.push({ lat: c[1], lon: c[0], type: "through" });
-          }
-        }
-      }
-
-      // End: rejoin point
-      locations.push({ lat: rejoinCoord[1], lon: rejoinCoord[0] });
-
-      // Single Valhalla call: exit → [highway waypoints] → station → [highway waypoints] → rejoin
-      const viaStationDuration = await getRouteDuration(locations, "auto", signal);
-
-      if (viaStationDuration == null) {
-        return { id: s.id, detourMin: -1 };
-      }
-
-      // Exact baseline from per-point cumulative durations (built from Valhalla
-      // maneuver timing). This is the actual driving time for the exit→rejoin
-      // segment on the original route — no proportional approximation.
-      const baselineSec = routeDurations[rejoinIdx] - routeDurations[exitIdx];
-
-      const detourSec = viaStationDuration - baselineSec;
-      // Large negative means something went wrong
+      const detourSec = fullDuration - routeDuration;
       if (detourSec < -60) return { id: s.id, detourMin: -1 };
       const detourMin = Math.round(Math.max(0, detourSec) / 6) / 10;
-
       return { id: s.id, detourMin };
     } catch (err) {
       console.warn(`[route-detour] station ${s.id} failed:`, err);
@@ -165,7 +77,6 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      // Drain queue on client disconnect so workers stop picking up new stations
       const onAbort = () => { queue.length = 0; };
       signal.addEventListener("abort", onAbort);
       try {
