@@ -457,12 +457,14 @@ export function SearchPanel({
     ?? [];
 
   // Station list: filtered by price and detour, sorted by user selection.
-  // Stations whose detour is still unknown (null) pass the detour filter
-  // and sort to the end when sorting by detour, so they don't optimistically
-  // appear as "0 min" during progressive loading.
+  // During detour loading, only show stations with known detour values so
+  // rows appear progressively as NDJSON results stream in.
   const stationList = allCorridorStations
-    .filter((f) => (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
-      && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour)))
+    .filter((f) => {
+      if (detoursLoading && f.properties.detourMin == null) return false;
+      return (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
+        && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour));
+    })
     .sort((a, b) => {
       if (sortBy === "price") {
         const pa = a.properties.price, pb = b.properties.price;
