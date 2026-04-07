@@ -48,6 +48,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const stationLegAbortRef = useRef<AbortController | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  const selectedStationCoordsRef = useRef<[number, number] | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   const [maxDetour, setMaxDetour] = useState<number | null>(null);
   const [stationsLoading, setStationsLoading] = useState(false);
@@ -167,9 +168,13 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           setPrimaryStations({ type: "FeatureCollection", features: [] });
         }
 
-        // Only fit bounds for normal route calculations.
-        // Station-leg routes keep the map centered on the station (from flyTo).
-        if (!isStationLeg) {
+        if (isStationLeg) {
+          // Re-center on the station after route calculation completes.
+          // The initial flyTo may have been interrupted by the render cycle.
+          if (selectedStationCoordsRef.current) {
+            mapRef.current?.flyTo({ center: selectedStationCoordsRef.current, zoom: 14, duration: 500 });
+          }
+        } else {
           const primary = data.routes[0];
           mapRef.current?.fitBounds(
             [
@@ -234,6 +239,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleSelectStation = useCallback((id: string | null) => {
     setSelectedStationId(id);
+    if (id == null) selectedStationCoordsRef.current = null;
     // Deselect clears station-leg preview — search-panel's effect handles waypoint cleanup
     if (id == null) {
       if (stationLegAbortRef.current) { stationLegAbortRef.current.abort(); stationLegAbortRef.current = null; }
@@ -268,7 +274,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
 
   const handleFlyTo = useCallback((coords: [number, number], stationId?: string) => {
     mapRef.current?.flyTo({ center: coords, zoom: 14, duration: 1500 });
-    if (stationId) setSelectedStationId(stationId);
+    if (stationId) {
+      selectedStationCoordsRef.current = coords;
+      setSelectedStationId(stationId);
+    }
   }, []);
 
   const handlePrimaryStationsChange = useCallback((stations: StationsGeoJSONCollection) => {
