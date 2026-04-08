@@ -3,8 +3,8 @@ name: pumperly
 description: A Helm chart for Pumperly - Open-source fuel and EV route planner
 type: application
 kubeVersion: ">=1.21.0-0"
-version: 0.1.1
-appVersion: "1.2.6"
+version: 0.1.2
+appVersion: "1.4.8"
 keywords:
   - pumperly
   - fuel
