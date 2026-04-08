@@ -31,6 +31,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+LABEL org.opencontainers.image.title="Pumperly" \
+      org.opencontainers.image.description="Open-source energy route planner for fuel and electric vehicles. Self-hostable." \
+      org.opencontainers.image.url="https://pumperly.com" \
+      org.opencontainers.image.source="https://github.com/GeiserX/Pumperly" \
+      org.opencontainers.image.documentation="https://github.com/GeiserX/Pumperly#readme" \
+      org.opencontainers.image.vendor="GeiserX" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      io.artifacthub.package.readme-url="https://raw.githubusercontent.com/GeiserX/Pumperly/main/README.md" \
+      io.artifacthub.package.license="GPL-3.0-only" \
+      io.artifacthub.package.keywords="fuel,gas,electric,ev,route,planner,price,comparison,self-hosted" \
+      io.artifacthub.package.maintainers="[{\"name\":\"GeiserX\",\"email\":\"9169332+GeiserX@users.noreply.github.com\"}]" \
+      io.artifacthub.package.category="integration-delivery"
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
