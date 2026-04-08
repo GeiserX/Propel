@@ -2,11 +2,38 @@ apiVersion: v1
 entries:
   pumperly:
   - annotations:
-      artifacthub.io/signKey: ''
+      category: Maps
+    apiVersion: v2
+    appVersion: 1.4.8
+    created: "2026-04-08T10:41:03.647021418Z"
+    description: A Helm chart for Pumperly - Open-source fuel and EV route planner
+    digest: 37ed54c495dbf19d3211304cc9fcb29502ce631258d695b6351aa954a10348a1
+    home: https://pumperly.com
+    keywords:
+    - pumperly
+    - fuel
+    - ev
+    - route-planner
+    - maps
+    - postgis
+    - self-hosted
+    kubeVersion: '>=1.21.0-0'
+    maintainers:
+    - email: acsdesk@protonmail.com
+      name: Sergio Fernandez
+    name: pumperly
+    sources:
+    - https://github.com/GeiserX/Pumperly
+    type: application
+    urls:
+    - https://github.com/GeiserX/Pumperly/releases/download/pumperly-0.1.2/pumperly-0.1.2.tgz
+    version: 0.1.2
+  - annotations:
+      artifacthub.io/signKey: ""
       category: Maps
     apiVersion: v2
     appVersion: 1.2.6
-    created: '2026-04-01T10:27:16.085900379Z'
+    created: "2026-04-01T10:27:16.085900379Z"
     description: A Helm chart for Pumperly - Open-source fuel and EV route planner
     digest: 99e226b74e5b74242c2515ea73af877c149058bde5b5788508356e065fd65fd2
     home: https://pumperly.com
@@ -30,11 +57,11 @@ entries:
     - https://github.com/GeiserX/Pumperly/releases/download/pumperly-0.1.1/pumperly-0.1.1.tgz
     version: 0.1.1
   - annotations:
-      artifacthub.io/signKey: ''
+      artifacthub.io/signKey: ""
       category: Maps
     apiVersion: v2
     appVersion: 1.2.2
-    created: '2026-04-01T00:56:40.139802+02:00'
+    created: "2026-04-01T00:56:40.139802+02:00"
     description: A Helm chart for Pumperly - Open-source fuel and EV route planner
     digest: b076f28880d13beb19432959cefc602db811e5dd413d34768d35a328879afff7
     home: https://pumperly.com
@@ -57,4 +84,4 @@ entries:
     urls:
     - https://github.com/GeiserX/Pumperly/releases/download/pumperly-0.1.0/pumperly-0.1.0.tgz
     version: 0.1.0
-generated: '2026-04-01T20:33:29Z'
+generated: "2026-04-08T10:41:03.647035074Z"
