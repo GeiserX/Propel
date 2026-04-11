@@ -16,6 +16,7 @@
   <a href="https://hub.docker.com/r/drumsergio/pumperly"><img src="https://img.shields.io/docker/pulls/drumsergio/pumperly?style=flat-square&logo=docker&label=Docker%20Pulls" alt="Docker Pulls"></a>
   <a href="https://github.com/GeiserX/awesome-europe#readme"><img src="https://img.shields.io/badge/listed%20on-awesome--europe-ffcc00?style=flat-square&logo=europeanunion&logoColor=ffcc00&labelColor=003399" alt="listed on awesome-europe"></a>
   <a href="https://artifacthub.io/packages/helm/pumperly/pumperly"><img src="https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pumperly&style=flat-square" alt="ArtifactHub"></a>
+  <a href="https://codecov.io/gh/GeiserX/Pumperly"><img src="https://codecov.io/gh/GeiserX/Pumperly/graph/badge.svg?style=flat-square" alt="codecov"></a>
 </p>
 
 <br>
