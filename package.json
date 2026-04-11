@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "scraper:run": "npx tsx src/scrapers/cli.ts"
   },
   "repository": {
@@ -37,12 +39,14 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.1.4",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.3",
     "postcss": "^8.5.9",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
   },
   "overrides": {
     "hono": "^4.12.12",
