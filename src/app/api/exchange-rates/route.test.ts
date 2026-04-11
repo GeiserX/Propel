@@ -40,7 +40,8 @@ describe("exchange-rates API", () => {
     } as Response);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = (await GET()) as any;
 
     expect(response.data.base).toBe("EUR");
     expect(response.data.rates.EUR).toBe(1);
@@ -61,7 +62,8 @@ describe("exchange-rates API", () => {
     } as Response);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = (await GET()) as any;
 
     // Should include fixed/approximate rates
     expect(response.data.rates.BAM).toBeCloseTo(1.95583, 4);
@@ -75,7 +77,8 @@ describe("exchange-rates API", () => {
     vi.mocked(fetch).mockRejectedValue(new Error("Network error"));
 
     const { GET } = await import("./route");
-    const response = await GET();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = (await GET()) as any;
 
     expect(response.status).toBe(502);
     expect(response.data.error).toBeDefined();
