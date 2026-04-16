@@ -50,6 +50,7 @@ export function middleware(req: NextRequest) {
   url.pathname = `/${locale}${pathname}`;
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-pumperly-locale", locale);
+  requestHeaders.set("x-pumperly-original-path", pathname);
   const res = NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   res.cookies.set("pumperly-locale", locale, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
   return res;

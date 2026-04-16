@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { Locale } from "@/lib/i18n";
+import { headers } from "next/headers";
 import {
   OG_TRANSLATIONS,
   SUPPORTED_LOCALES,
@@ -23,6 +24,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const og = OG_TRANSLATIONS[locale];
 
+  const h = await headers();
+  const originalPath = h.get("x-pumperly-original-path");
+  const isRoot = originalPath === "/";
+
+  const canonicalUrl = isRoot
+    ? "https://pumperly.com"
+    : `https://pumperly.com/${locale}`;
+
   const alternateLocales = SUPPORTED_LOCALES.filter((l) => l !== locale).map(
     (l) => OG_TRANSLATIONS[l].ogLocale,
   );
@@ -38,13 +47,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: og.description,
     metadataBase: new URL("https://pumperly.com"),
     alternates: {
-      canonical: `https://pumperly.com/${locale}`,
+      canonical: canonicalUrl,
       languages,
     },
     openGraph: {
       title: og.title,
       description: og.description,
-      url: `https://pumperly.com/${locale}`,
+      url: canonicalUrl,
       siteName: "Pumperly",
       type: "website",
       locale: og.ogLocale,
