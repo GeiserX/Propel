@@ -1,0 +1,9 @@
+description: "Open-source fuel & EV route planner. Real-time prices across enabled countries. Self-hostable."
+personalNote: "A route planner that actually considers fuel prices along your route, not just the shortest path. Supports both traditional fuel and EV charging stations."
+dockerImage: "drumsergio/pumperly"
+keyFeatures:
+  - "Real-time fuel price comparison along routes"
+  - "EV charging station integration"
+  - "Smart detour calculation for cheaper fuel"
+  - "Self-hostable with Docker"
+techStack: "TypeScript, Next.js, MapLibre, Docker"
