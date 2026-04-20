@@ -20,7 +20,7 @@ permissions:
 jobs:
   tag:
     name: Bump patch version
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
