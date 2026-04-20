@@ -4,21 +4,16 @@ on:
   push:
     tags:
       - 'v*.*.*'
-    branches:
-      - main
-    paths:
-      - 'docker/Dockerfile'
-      - 'src/**'
-      - 'prisma/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
     inputs:
       tag:
         description: 'Optional tag to use (e.g., v1.0.0). If not provided, uses latest from main.'
         required: false
         type: string
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   DOCKER_IMAGE: drumsergio/pumperly
