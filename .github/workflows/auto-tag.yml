@@ -28,6 +28,11 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.PAT }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Get latest tag and bump patch
         id: bump
         run: |
