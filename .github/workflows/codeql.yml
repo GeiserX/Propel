@@ -3,10 +3,24 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'prisma/**'
+      - 'package.json'
+      - 'package-lock.json'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'prisma/**'
+      - 'package.json'
+      - 'package-lock.json'
   schedule:
     - cron: "0 4 * * 0"
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
