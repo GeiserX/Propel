@@ -283,7 +283,7 @@ describe("DenmarkScraper", () => {
     expect(stations[0].brand).toBe("OK");
 
     expect(prices).toHaveLength(2);
-    expect(prices[0].currency).toBe("DKK");
+    expect(prices.find(p => p.fuelType === "B7")!.currency).toBe("DKK");
   });
 
   it("filters deleted stations and prices in DrivstoffAppen fallback", async () => {
@@ -361,10 +361,10 @@ describe("DenmarkScraper", () => {
     const { DenmarkScraper } = await import("./denmark");
     const scraper = new DenmarkScraper();
 
-    let callCount = 0;
+    const calls: string[] = [];
     vi.mocked(fetch).mockImplementation(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      callCount++;
+      calls.push(url);
 
       // First call is Fuelprices.dk — return 401
       if (url.includes("fuelprices.dk")) {
@@ -410,6 +410,8 @@ describe("DenmarkScraper", () => {
     const { stations } = await scraper.fetch();
     expect(stations).toHaveLength(1);
     expect(stations[0].externalId).toBe("dk-da-7001");
-    expect(callCount).toBeGreaterThan(1); // Went past the first call
+    expect(calls.some((u) => u.includes("fuelprices.dk"))).toBe(true);
+    expect(calls.some((u) => u.includes("authorization-sessions"))).toBe(true);
+    expect(calls.some((u) => u.includes("/stations"))).toBe(true);
   });
 });

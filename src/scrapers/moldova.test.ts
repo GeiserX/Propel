@@ -69,7 +69,7 @@ describe("MoldovaScraper", () => {
     expect(prices.find((p) => p.fuelType === "B7")!.price).toBe(22.5);
     expect(prices.find((p) => p.fuelType === "E5")!.price).toBe(24.3);
     expect(prices.find((p) => p.fuelType === "LPG")!.price).toBe(12.8);
-    expect(prices[0].currency).toBe("MDL");
+    expect(prices.every(p => p.currency === "MDL")).toBe(true);
   });
 
   it("throws on non-OK HTTP response", async () => {

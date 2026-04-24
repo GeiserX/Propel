@@ -5,7 +5,7 @@ vi.mock("../generated/prisma/client", () => ({ PrismaClient: vi.fn() }));
 
 describe("TurkeyScraper", () => {
   beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
-  afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); vi.unstubAllGlobals(); });
 
   it("has correct country and source", async () => {
     const { TurkeyScraper } = await import("./turkey");

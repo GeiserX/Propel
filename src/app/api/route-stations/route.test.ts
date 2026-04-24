@@ -137,11 +137,9 @@ describe("route-stations API", () => {
 
   it("returns 400 when coordinates have fewer than 2 points", async () => {
     const { POST } = await import("./route");
-    const response = (await POST(makeRequest({
-      geometry: { type: "LineString", coordinates: [[-3.7, 40.4]] },
-      fuel: "B7",
+    const body = { ...validBody, geometry: { type: "LineString", coordinates: [[-3.7, 40.4]] } };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any)) as any;
+    const response = (await POST(makeRequest(body) as any)) as any;
 
     expect(response.status).toBe(400);
     expect(response.data.error).toBe("Invalid parameters");

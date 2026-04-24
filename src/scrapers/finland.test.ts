@@ -8,17 +8,19 @@ vi.mock("../generated/prisma/client", () => ({
   PrismaClient: vi.fn(),
 }));
 
+const origSetTimeout = globalThis.setTimeout;
+
 describe("FinlandScraper", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
     // Replace setTimeout to resolve immediately (avoids 115 * 100ms page delays)
-    const origSetTimeout = globalThis.setTimeout;
     vi.stubGlobal("setTimeout", (fn: () => void, _ms?: number) => origSetTimeout(fn, 0));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    vi.unstubAllGlobals();
   });
 
   it("has correct country and source", async () => {

@@ -134,6 +134,6 @@ describe("AustriaScraper", () => {
     );
     // Should only have one entry — the cheapest
     expect(dieselPrices).toHaveLength(1);
-    expect(dieselPrices[0].price).toBeLessThanOrEqual(1.5);
+    expect(dieselPrices[0].price).toBe(1.4);
   }, 30_000);
 });

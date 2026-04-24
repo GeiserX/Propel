@@ -186,6 +186,7 @@ describe("BaseScraper.run()", () => {
     scraper.mockStations = [makeStation("s1")];
     scraper.mockPrices = [
       makePrice("s1", "CNG" as RawFuelPrice["fuelType"], 1.20, "EUR"), // valid
+      makePrice("s1", "ADBLUE" as RawFuelPrice["fuelType"], 0.50, "EUR"), // valid
       makePrice("s1", "H2" as RawFuelPrice["fuelType"], 0.01, "EUR"),  // too low (< 0.05)
       makePrice("s1", "LNG" as RawFuelPrice["fuelType"], 150, "EUR"),  // too high (>= 100)
     ];
@@ -197,7 +198,7 @@ describe("BaseScraper.run()", () => {
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
-    expect(result.pricesUpserted).toBe(1);
+    expect(result.pricesUpserted).toBe(2);
   });
 
   it("drops fuel stations with no valid prices (keeps EV chargers)", async () => {

@@ -19,6 +19,7 @@ describe("SerbiaScraper", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    vi.unstubAllGlobals();
   });
 
   it("has correct country and source", async () => {

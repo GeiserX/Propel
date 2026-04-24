@@ -21,6 +21,7 @@ describe("station types", () => {
       "B7", "B7_PREMIUM", "B10", "B_AGRICULTURAL",
       "HVO", "LPG", "CNG", "LNG", "H2", "ADBLUE", "EV",
     ];
+    // Tripwire: update this count when adding new members to the FuelType union
     expect(fuels).toHaveLength(16);
   });
 

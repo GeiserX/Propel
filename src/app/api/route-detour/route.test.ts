@@ -14,11 +14,10 @@ vi.mock("@/lib/valhalla", () => ({
   getRouteDuration: vi.fn(),
 }));
 
-function makeRequest(body: unknown, aborted = false) {
-  const ac = new AbortController();
+function makeRequest(body: unknown) {
   return {
     json: async () => body,
-    signal: aborted ? AbortSignal.abort() : ac.signal,
+    signal: new AbortController().signal,
   };
 }
 
@@ -76,7 +75,7 @@ describe("route-detour API", () => {
     const result1 = JSON.parse(lines[0]);
     expect(result1.id).toBe("s1");
     expect(typeof result1.detourMin).toBe("number");
-    expect(result1.detourMin).toBeGreaterThanOrEqual(0);
+    expect(result1.detourMin).toBeCloseTo(10, 0);
   });
 
   it("returns detourMin=-1 when getRouteDuration returns null", async () => {
