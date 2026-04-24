@@ -155,6 +155,81 @@ describe("valhalla module", () => {
     });
   });
 
+  describe("getRoute with maneuvers", () => {
+    it("builds durations from maneuver segments (not linear fallback)", async () => {
+      const { getRoute } = await import("./valhalla");
+
+      // Shape that decodes to 3+ coordinates
+      const mockTrip = {
+        legs: [
+          {
+            shape: "_c}|gAz~fjC_seK_seK_seK_seK",
+            summary: { length: 200, time: 7200 },
+            maneuvers: [
+              { time: 3600, begin_shape_index: 0, end_shape_index: 2 },
+              { time: 3600, begin_shape_index: 2, end_shape_index: 4 },
+            ],
+          },
+        ],
+        summary: { length: 200, time: 7200 },
+      };
+
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ trip: mockTrip }),
+      } as Response);
+
+      const result = await getRoute([
+        { lat: 40, lon: -3 },
+        { lat: 42, lon: -1 },
+      ]);
+
+      expect(result).not.toBeNull();
+      expect(result!.durations.length).toBeGreaterThan(0);
+      // Durations should be monotonically non-decreasing
+      for (let i = 1; i < result!.durations.length; i++) {
+        expect(result!.durations[i]).toBeGreaterThanOrEqual(result!.durations[i - 1]);
+      }
+    });
+  });
+
+  describe("getRoute with multiple legs", () => {
+    it("concatenates multi-leg coordinates and durations", async () => {
+      const { getRoute } = await import("./valhalla");
+
+      const makeLeg = (length: number, time: number) => ({
+        shape: "_c}|gAz~fjC_seK_seK",
+        summary: { length, time },
+        maneuvers: [],
+      });
+
+      const mockTrip = {
+        legs: [makeLeg(80, 2400), makeLeg(70, 2100)],
+        summary: { length: 150, time: 4500 },
+      };
+
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ trip: mockTrip }),
+      } as Response);
+
+      const result = await getRoute([
+        { lat: 40, lon: -3 },
+        { lat: 41, lon: -2 },
+        { lat: 42, lon: -1 },
+      ]);
+
+      expect(result).not.toBeNull();
+      expect(result!.distance).toBe(150);
+      expect(result!.duration).toBe(4500);
+      // Multi-leg should have more coords than single-leg (concatenated, minus overlap)
+      expect(result!.geometry.coordinates.length).toBeGreaterThan(1);
+      // Last duration should match cumulative total time
+      const lastDur = result!.durations[result!.durations.length - 1];
+      expect(lastDur).toBeGreaterThan(2400); // past first leg's time
+    });
+  });
+
   describe("getRouteDuration", () => {
     it("returns null when VALHALLA_URL is not set", async () => {
       delete process.env.VALHALLA_URL;

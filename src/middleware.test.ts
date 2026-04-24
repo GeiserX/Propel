@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // We need to mock next/server since middleware uses NextRequest/NextResponse
 vi.mock("next/server", () => {
@@ -87,6 +87,10 @@ function makeRequest(
 }
 
 describe("middleware", () => {
+  beforeEach(() => {
+    (NextResponse as any)._responses.length = 0;
+  });
+
   it("skips API routes", () => {
     const req = makeRequest("/api/stations");
     const res = middleware(req);
@@ -153,6 +157,95 @@ describe("middleware", () => {
       "es",
       expect.objectContaining({ path: "/" }),
     );
+  });
+});
+
+describe("middleware root rewrite", () => {
+  beforeEach(() => {
+    (NextResponse as any)._responses.length = 0;
+  });
+
+  it("sets x-pumperly-original-path header on root path rewrite", () => {
+    const req = makeRequest("/");
+    middleware(req);
+
+    // The rewrite call is captured in _responses
+    const responses = (NextResponse as any)._responses as Array<{
+      type: string;
+      args: unknown[];
+    }>;
+    const rewriteCall = responses.find((r) => r.type === "rewrite");
+    expect(rewriteCall).toBeDefined();
+
+    // The second arg is the options with request.headers
+    const opts = rewriteCall!.args[1] as {
+      request?: { headers?: Map<string, string> };
+    };
+    expect(opts?.request?.headers).toBeDefined();
+    const headers = opts!.request!.headers!;
+    expect(headers.get("x-pumperly-original-path")).toBe("/");
+    expect(headers.get("x-pumperly-locale")).toBeDefined();
+  });
+
+  it("sets x-pumperly-original-path for non-root paths without locale", () => {
+    const req = makeRequest("/some/page");
+    middleware(req);
+
+    const responses = (NextResponse as any)._responses as Array<{
+      type: string;
+      args: unknown[];
+    }>;
+    const rewriteCall = responses.find((r) => r.type === "rewrite");
+    expect(rewriteCall).toBeDefined();
+
+    const opts = rewriteCall!.args[1] as {
+      request?: { headers?: Map<string, string> };
+    };
+    expect(opts!.request!.headers!.get("x-pumperly-original-path")).toBe(
+      "/some/page",
+    );
+  });
+
+  it("rewrites URL to include detected locale prefix", () => {
+    const req = makeRequest("/", {
+      headers: { "accept-language": "fr-FR,fr;q=0.9" },
+    });
+    middleware(req);
+
+    const responses = (NextResponse as any)._responses as Array<{
+      type: string;
+      args: unknown[];
+    }>;
+    const rewriteCall = responses.find((r) => r.type === "rewrite");
+    expect(rewriteCall).toBeDefined();
+
+    // First arg is the rewrite URL
+    const url = rewriteCall!.args[0] as { pathname: string };
+    expect(url.pathname).toBe("/fr/");
+  });
+});
+
+describe("middleware locale in path", () => {
+  beforeEach(() => {
+    (NextResponse as any)._responses.length = 0;
+  });
+
+  it("sets x-pumperly-locale header when locale is in path", () => {
+    const req = makeRequest("/de/map");
+    middleware(req);
+
+    const responses = (NextResponse as any)._responses as Array<{
+      type: string;
+      args: unknown[];
+    }>;
+    const nextCall = responses.find((r) => r.type === "next");
+    expect(nextCall).toBeDefined();
+
+    const opts = nextCall!.args[0] as {
+      request?: { headers?: Map<string, string> };
+    };
+    expect(opts?.request?.headers).toBeDefined();
+    expect(opts!.request!.headers!.get("x-pumperly-locale")).toBe("de");
   });
 });
 
