@@ -46,7 +46,7 @@ describe("db module", () => {
   });
 
   it("caches prisma on globalThis in non-production", async () => {
-    process.env.NODE_ENV = "development";
+    (process.env as Record<string, string>).NODE_ENV = "development";
     const { prisma } = await import("./db");
     expect((globalThis as any).prisma).toBe(prisma);
   });

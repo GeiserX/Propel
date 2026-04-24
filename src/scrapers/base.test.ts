@@ -121,7 +121,7 @@ describe("BaseScraper.run()", () => {
     ]);
 
     // Orphan cleanup
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
 
     // Station upsert
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
@@ -156,7 +156,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -175,7 +175,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -193,7 +193,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -212,7 +212,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-ev", external_id: "ev1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -244,7 +244,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
 
     const result = await scraper.run();
 
@@ -261,7 +261,7 @@ describe("BaseScraper.run()", () => {
       { id: "uuid-1", external_id: "s1" },
     ]);
     // Cleanup returns 3 deleted
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 3n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(3) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -276,7 +276,7 @@ describe("BaseScraper.run()", () => {
 
     // Station lookup returns empty — no UUID match
     mockQueryRawUnsafe.mockResolvedValueOnce([]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -299,7 +299,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -317,7 +317,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([
       { id: "uuid-1", external_id: "s1" },
     ]);
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
@@ -334,7 +334,7 @@ describe("BaseScraper.run()", () => {
     mockQueryRawUnsafe.mockResolvedValueOnce(
       stations.map((s) => ({ id: `uuid-${s.externalId}`, external_id: s.externalId })),
     );
-    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: 0n }]);
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ count: BigInt(0) }]);
     mockExecuteRawUnsafe.mockResolvedValue(undefined);
 
     const result = await scraper.run();
