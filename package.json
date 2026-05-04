@@ -32,7 +32,7 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-map-gl": "^8.1.1",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",
@@ -42,7 +42,7 @@
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.4",
-    "postcss": "^8.5.12",
+    "postcss": "^8.5.13",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
