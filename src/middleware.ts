@@ -44,14 +44,11 @@ export function middleware(req: NextRequest) {
     return res;
   }
 
-  // Root "/" — rewrite internally to /[detected-locale] (URL stays as /)
+  // Root "/" or unlocalized path — redirect to /[detected-locale] so search engines see distinct URLs
   const locale = detectLocale(req);
   const url = req.nextUrl.clone();
   url.pathname = `/${locale}${pathname}`;
-  const requestHeaders = new Headers(req.headers);
-  requestHeaders.set("x-pumperly-locale", locale);
-  requestHeaders.set("x-pumperly-original-path", pathname);
-  const res = NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  const res = NextResponse.redirect(url, 302);
   res.cookies.set("pumperly-locale", locale, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
   return res;
 }
