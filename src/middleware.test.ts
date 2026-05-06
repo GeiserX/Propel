@@ -64,6 +64,12 @@ vi.mock("next/server", () => {
       return res;
     }
 
+    static redirect(url: unknown, status?: number) {
+      const res = new MockNextResponse();
+      responses.push({ type: "redirect", args: [url, status] });
+      return res;
+    }
+
     static json(data: unknown, init?: unknown) {
       return { data, init };
     }
@@ -160,34 +166,25 @@ describe("middleware", () => {
   });
 });
 
-describe("middleware root rewrite", () => {
+describe("middleware root redirect", () => {
   beforeEach(() => {
     (NextResponse as any)._responses.length = 0;
   });
 
-  it("sets x-pumperly-original-path header on root path rewrite", () => {
+  it("redirects root path to detected locale", () => {
     const req = makeRequest("/");
     middleware(req);
 
-    // The rewrite call is captured in _responses
     const responses = (NextResponse as any)._responses as Array<{
       type: string;
       args: unknown[];
     }>;
-    const rewriteCall = responses.find((r) => r.type === "rewrite");
-    expect(rewriteCall).toBeDefined();
-
-    // The second arg is the options with request.headers
-    const opts = rewriteCall!.args[1] as {
-      request?: { headers?: Map<string, string> };
-    };
-    expect(opts?.request?.headers).toBeDefined();
-    const headers = opts!.request!.headers!;
-    expect(headers.get("x-pumperly-original-path")).toBe("/");
-    expect(headers.get("x-pumperly-locale")).toBeDefined();
+    const redirectCall = responses.find((r) => r.type === "redirect");
+    expect(redirectCall).toBeDefined();
+    expect(redirectCall!.args[1]).toBe(302);
   });
 
-  it("sets x-pumperly-original-path for non-root paths without locale", () => {
+  it("redirects non-root paths without locale", () => {
     const req = makeRequest("/some/page");
     middleware(req);
 
@@ -195,18 +192,14 @@ describe("middleware root rewrite", () => {
       type: string;
       args: unknown[];
     }>;
-    const rewriteCall = responses.find((r) => r.type === "rewrite");
-    expect(rewriteCall).toBeDefined();
+    const redirectCall = responses.find((r) => r.type === "redirect");
+    expect(redirectCall).toBeDefined();
 
-    const opts = rewriteCall!.args[1] as {
-      request?: { headers?: Map<string, string> };
-    };
-    expect(opts!.request!.headers!.get("x-pumperly-original-path")).toBe(
-      "/some/page",
-    );
+    const url = redirectCall!.args[0] as { pathname: string };
+    expect(url.pathname).toBe("/es/some/page");
   });
 
-  it("rewrites URL to include detected locale prefix", () => {
+  it("redirects to detected locale from accept-language", () => {
     const req = makeRequest("/", {
       headers: { "accept-language": "fr-FR,fr;q=0.9" },
     });
@@ -216,11 +209,10 @@ describe("middleware root rewrite", () => {
       type: string;
       args: unknown[];
     }>;
-    const rewriteCall = responses.find((r) => r.type === "rewrite");
-    expect(rewriteCall).toBeDefined();
+    const redirectCall = responses.find((r) => r.type === "redirect");
+    expect(redirectCall).toBeDefined();
 
-    // First arg is the rewrite URL
-    const url = rewriteCall!.args[0] as { pathname: string };
+    const url = redirectCall!.args[0] as { pathname: string };
     expect(url.pathname).toBe("/fr/");
   });
 });
