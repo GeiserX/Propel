@@ -19,31 +19,20 @@ env:
   DOCKER_IMAGE: drumsergio/pumperly
 
 jobs:
-  build-and-push:
-    runs-on: [self-hosted, linux, x64]
+  build-amd64:
+    runs-on: [self-hosted, Linux, X64]
     permissions:
       contents: read
       packages: write
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log into Docker Hub
-        uses: docker/login-action@v4
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
+      - id: meta
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
@@ -51,22 +40,81 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{raw}}
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
-            type=sha,prefix={{branch}}-,enable=${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+          flavor: suffix=-amd64
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/GeiserX/Pumperly/main/README.md
             io.artifacthub.package.license=GPL-3.0-only
             io.artifacthub.package.keywords=fuel,gas,electric,ev,route,planner,price,comparison,self-hosted
             io.artifacthub.package.maintainers=[{"name":"GeiserX","email":"9169332+GeiserX@users.noreply.github.com"}]
             io.artifacthub.package.category=integration-delivery
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+  build-arm64:
+    runs-on: [self-hosted, Linux, ARM64]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{raw}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
+          flavor: suffix=-arm64
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+  manifest:
+    runs-on: [self-hosted, Linux, X64]
+    needs: [build-amd64, build-arm64]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{raw}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
+      - run: |
+          tags="${{ steps.meta.outputs.tags }}"
+          for tag in $tags; do
+            docker buildx imagetools create -t "$tag" \
+              "$tag-amd64" \
+              "$tag-arm64"
+          done
