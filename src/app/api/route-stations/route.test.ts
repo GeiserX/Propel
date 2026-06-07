@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// PARITY GATE: EXPLAIN ANALYZE + result-count parity vs the old segment-split must be verified against postgis/postgis:17-3.4 before this ships.
+
 vi.mock("next/server", () => ({
   NextResponse: {
     json: (data: unknown, init?: { headers?: Record<string, string>; status?: number }) => ({
@@ -16,14 +18,28 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+// A unique IP per request keeps the in-memory rate limiter from carrying state
+// across tests (30/min/IP). Headers expose only .get() — all clientIp uses.
+function makeHeaders(ip: string): Headers {
+  return { get: (name: string) => (name.toLowerCase() === "x-forwarded-for" ? ip : null) } as unknown as Headers;
+}
+
+let ipCounter = 0;
+function nextIp(): string {
+  ipCounter += 1;
+  return `10.0.0.${ipCounter}`;
+}
+
 function makeRequest(body: unknown) {
   return {
+    headers: makeHeaders(nextIp()),
     json: async () => body,
   };
 }
 
 function makeBadJsonRequest() {
   return {
+    headers: makeHeaders(nextIp()),
     json: async () => { throw new SyntaxError("Unexpected token"); },
   };
 }
@@ -55,14 +71,16 @@ const mockStationRow = {
 describe("route-stations API", () => {
   beforeEach(() => {
     vi.resetModules();
+    // The $queryRawUnsafe mock is a module-level singleton; clear call history
+    // (and any per-test mockResolvedValueOnce chains) between tests so
+    // toHaveBeenCalledTimes assertions reflect only the current test.
+    vi.clearAllMocks();
   });
 
   it("returns GeoJSON FeatureCollection for valid request", async () => {
     const { prisma } = await import("@/lib/db");
-    // First call: segment query, second call: position recompute
-    vi.mocked(prisma.$queryRawUnsafe)
-      .mockResolvedValueOnce([mockStationRow])
-      .mockResolvedValueOnce([{ id: "st1", route_fraction: 0.15, distance_m: 450 }]);
+    // Single query — route_fraction/distance_m come straight from the row.
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([mockStationRow]);
 
     const { POST } = await import("./route");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,15 +96,23 @@ describe("route-stations API", () => {
     expect(feature.properties.name).toBe("Repsol Madrid");
     expect(feature.properties.price).toBe(1.459);
     expect(feature.properties.fuelType).toBe("B7");
-    expect(feature.properties.routeFraction).toBe(0.15);
+    expect(feature.properties.routeFraction).toBe(0.1);
+
+    // Exactly ONE query — no segment-split, no separate positioning query.
+    expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(1);
+    const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+    expect(sql).toContain("ST_GeomFromText($1, 4326)");
+    expect(sql).toContain("s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)");
+    expect(sql).toContain("ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction");
+    expect(sql).toContain("ORDER BY route_fraction");
+    expect(sql).toContain("JOIN LATERAL");
   });
 
   it("queries EV stations without price join", async () => {
     const { prisma } = await import("@/lib/db");
     const evRow = { ...mockStationRow, price: null, reported_at: null };
-    vi.mocked(prisma.$queryRawUnsafe)
-      .mockResolvedValueOnce([evRow])
-      .mockResolvedValueOnce([{ id: "st1", route_fraction: 0.1, distance_m: 500 }]);
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([evRow]);
 
     const { POST } = await import("./route");
     const response = (await POST(makeRequest({
@@ -99,6 +125,56 @@ describe("route-stations API", () => {
     expect(response.data.features).toHaveLength(1);
     // EV query should not include price
     expect(response.data.features[0].properties.price).toBeUndefined();
+
+    expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(1);
+    const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+    // EV branch: type filter, same spatial WHERE, no price JOIN LATERAL.
+    expect(sql).toContain("s.station_type IN ('ev_charger', 'both')");
+    expect(sql).toContain("s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)");
+    expect(sql).not.toContain("JOIN LATERAL");
+  });
+
+  it("issues a single query for a >200-coordinate LineString (no segment-split)", async () => {
+    const { prisma } = await import("@/lib/db");
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([mockStationRow]);
+
+    // 250 points: under the old SEGMENT_SIZE=200 logic this fanned out into
+    // multiple segment queries. The single-query rewrite must issue exactly one.
+    const coordinates = Array.from({ length: 250 }, (_, i) => [
+      -3.7 + i * 0.01,
+      40.4 - i * 0.005,
+    ]);
+    const bigBody = { ...validBody, geometry: { type: "LineString" as const, coordinates } };
+
+    const { POST } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = (await POST(makeRequest(bigBody) as any)) as any;
+
+    expect(response.status).toBe(200);
+    expect(response.data.features).toHaveLength(1);
+    expect(response.data.features[0].properties.id).toBe("st1");
+    expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 429 when the per-IP rate limit is exceeded", async () => {
+    const { prisma } = await import("@/lib/db");
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([]);
+
+    const { POST } = await import("./route");
+    const ip = nextIp();
+    // Reuse one request shape so all 31 calls share the same IP bucket.
+    const req = { headers: makeHeaders(ip), json: async () => validBody };
+
+    let last: { status: number; data: { error?: string }; headers: Record<string, string> } | undefined;
+    for (let i = 0; i < 31; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      last = (await POST(req as any)) as any;
+    }
+
+    expect(last?.status).toBe(429);
+    expect(last?.data.error).toBe("Too many requests");
+    expect(last?.headers["Retry-After"]).toBeDefined();
   });
 
   it("returns empty FeatureCollection when no stations found", async () => {
@@ -160,9 +236,7 @@ describe("route-stations API", () => {
   it("omits reportedAt when reported_at is null", async () => {
     const { prisma } = await import("@/lib/db");
     const rowNoDate = { ...mockStationRow, reported_at: null };
-    vi.mocked(prisma.$queryRawUnsafe)
-      .mockResolvedValueOnce([rowNoDate])
-      .mockResolvedValueOnce([{ id: "st1", route_fraction: 0.1, distance_m: 500 }]);
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([rowNoDate]);
 
     const { POST } = await import("./route");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

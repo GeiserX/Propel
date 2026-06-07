@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getRoute, getRoutes } from "@/lib/valhalla";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const coordSchema = z.tuple([
   z.number().min(-180).max(180),
@@ -14,6 +15,16 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Per-IP rate limit: 30 requests / minute.
+  const limit = rateLimit(`route:${clientIp(request.headers)}`, 30, 60_000);
+  if (!limit.ok) {
+    const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(retryAfter) } },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();

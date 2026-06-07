@@ -39,6 +39,68 @@ describe("valhalla module", () => {
     vi.resetModules();
   });
 
+  describe("concurrency semaphore", () => {
+    it("bounds in-flight slots to the configured max and queues the rest", async () => {
+      const { __semaphore } = await import("./valhalla");
+      const max = __semaphore.maxInflight();
+      expect(max).toBeGreaterThan(0);
+
+      // Fill every slot.
+      for (let i = 0; i < max; i++) await __semaphore.acquire();
+      expect(__semaphore.inflight()).toBe(max);
+      expect(__semaphore.waiterCount()).toBe(0);
+
+      // One more must queue (does not resolve yet).
+      let resolved = false;
+      const queued = __semaphore.acquire().then(() => { resolved = true; });
+      await Promise.resolve();
+      expect(__semaphore.waiterCount()).toBe(1);
+      expect(resolved).toBe(false);
+
+      // Releasing a slot hands it straight to the queued waiter.
+      __semaphore.release();
+      await queued;
+      expect(resolved).toBe(true);
+      expect(__semaphore.waiterCount()).toBe(0);
+      expect(__semaphore.inflight()).toBe(max);
+
+      // Drain so module-level state doesn't leak into other tests.
+      for (let i = 0; i < max; i++) __semaphore.release();
+      expect(__semaphore.inflight()).toBe(0);
+    });
+
+    it("rejects a queued waiter with AbortError when its signal aborts", async () => {
+      const { __semaphore } = await import("./valhalla");
+      const max = __semaphore.maxInflight();
+
+      for (let i = 0; i < max; i++) await __semaphore.acquire();
+
+      const controller = new AbortController();
+      const queued = __semaphore.acquire(controller.signal);
+      await Promise.resolve();
+      expect(__semaphore.waiterCount()).toBe(1);
+
+      controller.abort();
+      await expect(queued).rejects.toMatchObject({ name: "AbortError" });
+      // The aborted waiter is removed from the queue and never consumed a slot.
+      expect(__semaphore.waiterCount()).toBe(0);
+      expect(__semaphore.inflight()).toBe(max);
+
+      for (let i = 0; i < max; i++) __semaphore.release();
+      expect(__semaphore.inflight()).toBe(0);
+    });
+
+    it("rejects immediately if the signal is already aborted", async () => {
+      const { __semaphore } = await import("./valhalla");
+      const controller = new AbortController();
+      controller.abort();
+      await expect(__semaphore.acquire(controller.signal)).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      expect(__semaphore.inflight()).toBe(0);
+    });
+  });
+
   describe("getRoute", () => {
     it("returns null when VALHALLA_URL is not set", async () => {
       delete process.env.VALHALLA_URL;
@@ -56,6 +118,50 @@ describe("valhalla module", () => {
       vi.mocked(fetch).mockResolvedValue({
         ok: false,
         status: 500,
+      } as Response);
+
+      const result = await getRoute([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when response body is not valid JSON (warmup HTML)", async () => {
+      const { getRoute } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        },
+      } as unknown as Response);
+
+      const result = await getRoute([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when trip is missing from the payload", async () => {
+      const { getRoute } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ error: "no route" }),
+      } as Response);
+
+      const result = await getRoute([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when trip shape is malformed (missing summary.time)", async () => {
+      const { getRoute } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ trip: { legs: [], summary: { length: 10 } } }),
       } as Response);
 
       const result = await getRoute([
@@ -115,6 +221,49 @@ describe("valhalla module", () => {
         { lat: 41.0, lon: -2.0 },
       ]);
       expect(result).toEqual([]);
+    });
+
+    it("returns empty array when response body is not valid JSON", async () => {
+      const { getRoutes } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        },
+      } as unknown as Response);
+
+      const result = await getRoutes([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toEqual([]);
+    });
+
+    it("skips malformed alternates and returns only valid trips", async () => {
+      const { getRoutes } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          trip: {
+            legs: [
+              {
+                shape: "_c}|gAz~fjC_seK_seK",
+                summary: { length: 100, time: 3600 },
+                maneuvers: [],
+              },
+            ],
+            summary: { length: 100, time: 3600 },
+          },
+          alternates: [{ trip: { legs: [], summary: { length: 5 } } }, null],
+        }),
+      } as Response);
+
+      const routes = await getRoutes(
+        [{ lat: 40.0, lon: -3.0 }, { lat: 41.0, lon: -2.0 }],
+        2,
+      );
+      expect(routes).toHaveLength(1);
+      expect(routes[0].distance).toBe(100);
     });
 
     it("returns multiple routes including alternates", async () => {
@@ -234,6 +383,36 @@ describe("valhalla module", () => {
     it("returns null when VALHALLA_URL is not set", async () => {
       delete process.env.VALHALLA_URL;
       const { getRouteDuration } = await import("./valhalla");
+      const result = await getRouteDuration([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when response body is not valid JSON", async () => {
+      const { getRouteDuration } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        },
+      } as unknown as Response);
+
+      const result = await getRouteDuration([
+        { lat: 40.0, lon: -3.0 },
+        { lat: 41.0, lon: -2.0 },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when trip summary is missing", async () => {
+      const { getRouteDuration } = await import("./valhalla");
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ trip: { legs: [] } }),
+      } as Response);
+
       const result = await getRouteDuration([
         { lat: 40.0, lon: -3.0 },
         { lat: 41.0, lon: -2.0 },

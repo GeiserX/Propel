@@ -97,23 +97,51 @@ export interface FueloConfig {
 }
 
 /**
- * Parse the price string from fuelo.net title attributes.
- * Formats: "1,35 EUR/l", "563,8 HUF/l", "1.518 EUR/l"
- * The comma is used as decimal separator for EUR, and as thousands for HUF.
+ * Currencies whose per-litre prices are unit-magnitude (≈1-5), so a lone dot
+ * in the price string is a genuine decimal point (e.g. EUR "1.518" = 1.518).
+ * For all other currencies a lone dot is a thousands separator
+ * (e.g. HUF "1.518" = 1518).
  */
-function parsePrice(raw: string): number {
-  // Remove spaces and currency suffix
-  const cleaned = raw.trim();
-  // Handle European number format: "1.234,5" or "563,8" or "1,35"
-  // If there's both a dot and comma, the last one is the decimal separator
-  if (cleaned.includes(",") && cleaned.includes(".")) {
-    // e.g. "1.234,56" → "1234.56"
-    return parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+const DECIMAL_UNIT = new Set(["EUR", "GBP", "CHF", "BGN", "BAM", "PLN", "RON"]);
+
+/**
+ * Parse the price string from fuelo.net title attributes.
+ * Formats: "1,35 EUR/l", "563,8 HUF/l", "1.518 EUR/l", "1.234,56 EUR/l"
+ *
+ * The lone-dot case is ambiguous ("1.518" → 1.518 EUR vs 1518 HUF), so the
+ * currency is required to disambiguate (see DECIMAL_UNIT).
+ */
+export function parsePrice(raw: string, currency: string): number {
+  // Strip everything except digits and the two separators, then trim.
+  const cleaned = raw.replace(/[^0-9.,]/g, "").trim();
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+
+  if (hasComma && hasDot) {
+    // Both present: the LAST separator is the decimal (EU convention).
+    if (cleaned.lastIndexOf(",") > cleaned.lastIndexOf(".")) {
+      // e.g. "1.234,56" → "1234.56"
+      return parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+    }
+    // e.g. "1,234.56" → "1234.56"
+    return parseFloat(cleaned.replace(/,/g, ""));
   }
-  if (cleaned.includes(",")) {
-    // e.g. "563,8" or "1,35"
+
+  if (hasComma) {
+    // Only comma → decimal comma. e.g. "563,8" or "1,35"
     return parseFloat(cleaned.replace(",", "."));
   }
+
+  if (hasDot) {
+    // Only dot → AMBIGUOUS. Use the currency to decide.
+    if (DECIMAL_UNIT.has(currency)) {
+      // Dot is the decimal separator. e.g. EUR "1.518" → 1.518
+      return parseFloat(cleaned);
+    }
+    // Dot is a thousands separator. e.g. HUF "1.518" → 1518
+    return parseFloat(cleaned.replace(/\./g, ""));
+  }
+
   return parseFloat(cleaned);
 }
 
@@ -208,11 +236,11 @@ function parseInfoWindow(
     const priceMatch = titleText.match(/:\s*([\d.,]+)\s+(\S+)\/[lk]/);
     if (!priceMatch) continue;
 
-    const price = parsePrice(priceMatch[1]);
-    if (isNaN(price) || price <= 0) continue;
-
     const rawCurrency = priceMatch[2];
     const currency = FUELO_CURRENCY_MAP[rawCurrency] ?? fallbackCurrency;
+
+    const price = parsePrice(priceMatch[1], currency);
+    if (isNaN(price) || price <= 0) continue;
 
     prices.push({ fuelType, price, currency });
   }

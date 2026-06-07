@@ -62,12 +62,12 @@ describe("stations/nearest API", () => {
     expect(response.data.features).toHaveLength(1);
     const f = response.data.features[0];
     expect(f.properties.id).toBe("st1");
-    expect(f.properties.distance_km).toBe(2.345);
+    expect(f.properties.distanceKm).toBe(2.345);
     expect(f.properties.price).toBe(1.459);
     expect(f.properties.fuelType).toBe("B7");
   });
 
-  it("rounds distance_km to 3 decimal places", async () => {
+  it("rounds distanceKm to 3 decimal places", async () => {
     vi.mocked(prisma.$queryRawUnsafe).mockResolvedValue([
       { ...mockRow, distance_km: 1.23456789 },
     ]);
@@ -75,7 +75,7 @@ describe("stations/nearest API", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = (await GET(makeRequest(validParams) as any)) as any;
 
-    expect(response.data.features[0].properties.distance_km).toBe(1.235);
+    expect(response.data.features[0].properties.distanceKm).toBe(1.235);
   });
 
   it("uses default limit of 5", async () => {

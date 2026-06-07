@@ -57,4 +57,11 @@ describe("db module", () => {
     const { prisma } = await import("./db");
     expect(prisma).toBe(sentinel);
   });
+
+  it("throws a descriptive error when DATABASE_URL is not set", async () => {
+    delete process.env.DATABASE_URL;
+    await expect(import("./db")).rejects.toThrow(
+      "DATABASE_URL environment variable is not set",
+    );
+  });
 });

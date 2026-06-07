@@ -37,6 +37,7 @@ import { AustraliaScraper } from "./australia";
 import { AustraliaNSWScraper } from "./australia-nsw";
 import { ArgentinaScraper } from "./argentina";
 import { MexicoScraper } from "./mexico";
+import { OCMScraper } from "./ocm";
 
 // ---------------------------------------------------------------------------
 // Scraper CLI
@@ -88,6 +89,38 @@ const SCRAPERS: Record<string, Array<() => BaseScraper>> = {
   AU: [() => new AustraliaScraper(), () => new AustraliaNSWScraper()],
   AR: [() => new ArgentinaScraper()],
   MX: [() => new MexicoScraper()],
+  // EV charger scrapers (OpenChargeMap) — keyed as EV_XX, mirroring instrumentation.ts
+  EV_ES: [() => new OCMScraper("ES")],
+  EV_FR: [() => new OCMScraper("FR")],
+  EV_PT: [() => new OCMScraper("PT")],
+  EV_IT: [() => new OCMScraper("IT")],
+  EV_AT: [() => new OCMScraper("AT")],
+  EV_DE: [() => new OCMScraper("DE")],
+  EV_GB: [() => new OCMScraper("GB")],
+  EV_SI: [() => new OCMScraper("SI")],
+  EV_NL: [() => new OCMScraper("NL")],
+  EV_BE: [() => new OCMScraper("BE")],
+  EV_LU: [() => new OCMScraper("LU")],
+  EV_RO: [() => new OCMScraper("RO")],
+  EV_GR: [() => new OCMScraper("GR")],
+  EV_IE: [() => new OCMScraper("IE")],
+  EV_HR: [() => new OCMScraper("HR")],
+  EV_CH: [() => new OCMScraper("CH")],
+  EV_PL: [() => new OCMScraper("PL")],
+  EV_CZ: [() => new OCMScraper("CZ")],
+  EV_HU: [() => new OCMScraper("HU")],
+  EV_BG: [() => new OCMScraper("BG")],
+  EV_SK: [() => new OCMScraper("SK")],
+  EV_DK: [() => new OCMScraper("DK")],
+  EV_SE: [() => new OCMScraper("SE")],
+  EV_NO: [() => new OCMScraper("NO")],
+  EV_RS: [() => new OCMScraper("RS")],
+  EV_FI: [() => new OCMScraper("FI")],
+  EV_EE: [() => new OCMScraper("EE")],
+  EV_LV: [() => new OCMScraper("LV")],
+  EV_LT: [() => new OCMScraper("LT")],
+  EV_BA: [() => new OCMScraper("BA")],
+  EV_MK: [() => new OCMScraper("MK")],
 };
 
 function usage(): never {

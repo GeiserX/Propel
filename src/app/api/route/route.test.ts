@@ -15,15 +15,25 @@ vi.mock("@/lib/valhalla", () => ({
   getRoutes: vi.fn(),
 }));
 
-function makeRequest(body: unknown) {
+// Rate-limit state in @/lib/rate-limit is module-level and persists across
+// tests within this file. We give each test a UNIQUE client IP so its bucket is
+// isolated and the 30/min limit is never tripped by other tests' calls.
+let ipCounter = 0;
+function nextIp(): string {
+  return `10.0.0.${++ipCounter}`;
+}
+
+function makeRequest(body: unknown, ip = nextIp()) {
   return {
     json: async () => body,
+    headers: new Headers({ "x-forwarded-for": ip }),
   };
 }
 
-function makeBadJsonRequest() {
+function makeBadJsonRequest(ip = nextIp()) {
   return {
     json: async () => { throw new SyntaxError("Unexpected token"); },
+    headers: new Headers({ "x-forwarded-for": ip }),
   };
 }
 
@@ -148,5 +158,31 @@ describe("route API", () => {
 
     expect(response.status).toBe(502);
     expect(response.data.error).toBe("Route calculation failed");
+  });
+
+  it("returns 429 with Retry-After once the per-IP limit (30/min) is exceeded", async () => {
+    const { getRoutes } = await import("@/lib/valhalla");
+    vi.mocked(getRoutes).mockResolvedValue([
+      { geometry: { type: "LineString", coordinates: [[-3.7, 40.4], [-0.37, 39.47]] }, distance: 350, duration: 12600, bbox: [-3.7, 39.47, -0.37, 40.4], durations: [0, 12600] },
+    ]);
+
+    const { POST } = await import("./route");
+    const ip = nextIp();
+    const body = { origin: [-3.7, 40.4], destination: [-0.37, 39.47] };
+
+    // First 30 calls from this IP are allowed.
+    for (let i = 0; i < 30; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ok = (await POST(makeRequest(body, ip) as any)) as any;
+      expect(ok.status).toBe(200);
+    }
+
+    // 31st call is rate-limited.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocked = (await POST(makeRequest(body, ip) as any)) as any;
+    expect(blocked.status).toBe(429);
+    expect(blocked.data.error).toBe("Too many requests");
+    expect(blocked.headers["Retry-After"]).toBeDefined();
+    expect(Number(blocked.headers["Retry-After"])).toBeGreaterThan(0);
   });
 });

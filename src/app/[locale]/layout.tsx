@@ -65,11 +65,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function LocaleLayout({ params, children }: Props) {
-  const { locale: raw } = await params;
-  const locale = (
-    SUPPORTED_LOCALES.includes(raw as Locale) ? raw : DEFAULT_LOCALE
-  ) as Locale;
-
+export default async function LocaleLayout({ children }: Props) {
   return <>{children}</>;
 }

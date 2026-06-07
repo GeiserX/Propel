@@ -1,26 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { fuelTypeEnum } from "@/types/fuel";
 import type { StationsGeoJSONCollection, StationGeoJSON } from "@/types/station";
 
-const VALID_FUEL_TYPES = [
-  "E5",
-  "E5_PREMIUM",
-  "E10",
-  "E5_98",
-  "E98_E10",
-  "B7",
-  "B7_PREMIUM",
-  "B10",
-  "B_AGRICULTURAL",
-  "HVO",
-  "LPG",
-  "CNG",
-  "LNG",
-  "H2",
-  "ADBLUE",
-  "EV",
-] as const;
+const RESULT_LIMIT = 20000;
 
 const querySchema = z.object({
   bbox: z
@@ -40,7 +24,7 @@ const querySchema = z.object({
         arr[3] <= 90,
       { message: "bbox must be minLon,minLat,maxLon,maxLat with valid coordinates" },
     ),
-  fuel: z.enum(VALID_FUEL_TYPES),
+  fuel: fuelTypeEnum,
 });
 
 interface StationRow {
@@ -98,7 +82,7 @@ export async function GET(request: NextRequest) {
               s.geom,
               ST_MakeEnvelope($1, $2, $3, $4, 4326)
             )
-          LIMIT 20000
+          LIMIT ${RESULT_LIMIT}
           `,
           minLon,
           minLat,
@@ -132,7 +116,7 @@ export async function GET(request: NextRequest) {
             s.geom,
             ST_MakeEnvelope($1, $2, $3, $4, 4326)
           )
-          LIMIT 20000
+          LIMIT ${RESULT_LIMIT}
           `,
           minLon,
           minLat,
@@ -164,6 +148,10 @@ export async function GET(request: NextRequest) {
       type: "FeatureCollection",
       features,
     };
+
+    if (rows.length >= RESULT_LIMIT) {
+      console.warn(`[stations] result truncated at ${RESULT_LIMIT}`);
+    }
 
     const withPrice = features.filter((f) => f.properties.price != null).length;
     console.log(`[stations] bbox=${bbox.map((n) => n.toFixed(2)).join(",")} fuel=${fuel} → ${features.length} stations (${withPrice} with price)`);

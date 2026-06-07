@@ -73,6 +73,33 @@ describe("exchange-rates API", () => {
     expect(response.data.rates.MDL).toBeDefined();
   });
 
+  it("parses double-quoted ECB XML attributes", async () => {
+    const mockXml = `<?xml version="1.0" encoding="UTF-8"?>
+<gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01" xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+  <Cube>
+    <Cube time="2026-05-15">
+      <Cube currency="USD" rate="1.0876"/>
+      <Cube currency="GBP" rate="0.8499"/>
+      <Cube currency="PLN" rate="4.2750"/>
+    </Cube>
+  </Cube>
+</gesmes:Envelope>`;
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: async () => mockXml,
+    } as Response);
+
+    const { GET } = await import("./route");
+    const response = (await GET()) as unknown as { data: { date: string; rates: Record<string, number> } };
+
+    expect(response.data.date).toBe("2026-05-15");
+    expect(response.data.rates.EUR).toBe(1);
+    expect(response.data.rates.USD).toBeCloseTo(1.0876, 4);
+    expect(response.data.rates.GBP).toBeCloseTo(0.8499, 4);
+    expect(response.data.rates.PLN).toBeCloseTo(4.275, 4);
+  });
+
   it("returns 502 when ECB fetch fails and no cache", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("Network error"));
 

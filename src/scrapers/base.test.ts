@@ -22,7 +22,40 @@ vi.mock("../generated/prisma/client", () => ({
 }));
 
 // Concrete test scraper
-import { BaseScraper, type RawStation, type RawFuelPrice } from "./base";
+import { BaseScraper, bandFor, type RawStation, type RawFuelPrice } from "./base";
+
+describe("bandFor (per-currency price bands)", () => {
+  it("accepts a plausible HUF price (595)", () => {
+    const band = bandFor("HUF");
+    expect(595 >= band.min && 595 <= band.max).toBe(true);
+  });
+
+  it("rejects an EUR-magnitude HUF price (1.5 — wrong units)", () => {
+    const band = bandFor("HUF");
+    expect(1.5 >= band.min && 1.5 <= band.max).toBe(false);
+  });
+
+  it("accepts a plausible ARS price (2050 — high inflation)", () => {
+    const band = bandFor("ARS");
+    expect(2050 >= band.min && 2050 <= band.max).toBe(true);
+  });
+
+  it("accepts a plausible EUR price (1.65)", () => {
+    const band = bandFor("EUR");
+    expect(1.65 >= band.min && 1.65 <= band.max).toBe(true);
+  });
+
+  it("rejects a HUF-magnitude EUR price (1518 — wrong units)", () => {
+    const band = bandFor("EUR");
+    expect(1518 >= band.min && 1518 <= band.max).toBe(false);
+  });
+
+  it("falls back to a permissive default band for unknown currencies", () => {
+    const band = bandFor("ZZZ");
+    expect(band.min).toBe(0.1);
+    expect(band.max).toBe(100000);
+  });
+});
 
 class TestScraper extends BaseScraper {
   readonly country = "XX";
@@ -89,7 +122,7 @@ describe("BaseScraper.run()", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns result with zero counts when no data fetched", async () => {
+  it("aborts the destructive replace when no data is fetched", async () => {
     scraper.mockStations = [];
     scraper.mockPrices = [];
 
@@ -102,7 +135,11 @@ describe("BaseScraper.run()", () => {
     expect(result.source).toBe("test_source");
     expect(result.stationsUpserted).toBe(0);
     expect(result.pricesUpserted).toBe(0);
-    expect(result.errors).toHaveLength(0);
+    // An empty fetch must NOT wipe a country: the run aborts before the
+    // destructive price-replace / orphan-cleanup and records why.
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("Aborted destructive replace");
+    expect(mockTransaction).not.toHaveBeenCalled();
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(mockDisconnect).toHaveBeenCalled();
   });

@@ -30,6 +30,9 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
   const { t } = useI18n();
   const { decimals: userDecimals, rateInfo } = useCurrency();
   const { properties, geometry } = station;
+  // `properties.fuelType` is a raw string; the cast narrows it to the map key
+  // type for the lookup. `.get()` returns undefined for unknown codes, which is
+  // handled defensively below via `fuelInfo?.label ?? properties.fuelType`.
   const fuelInfo = FUEL_TYPE_MAP.get(properties.fuelType as Parameters<typeof FUEL_TYPE_MAP.get>[0]);
 
   const isConverted = properties.originalCurrency != null;

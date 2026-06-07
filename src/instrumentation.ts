@@ -215,7 +215,15 @@ export async function register() {
     const intervalMs = intervalHours * 60 * 60 * 1000;
     console.log(`[scraper] ${code}: scraping every ${intervalHours}h`);
 
+    // Overlap mutex: if a scrape runs longer than its interval, skip the
+    // next tick rather than starting a concurrent run against the same rows.
+    let running = false;
     async function runScraper() {
+      if (running) {
+        console.warn(`[scraper] ${code}: previous run still in progress — skipping this tick`);
+        return;
+      }
+      running = true;
       try {
         const scraper = scraperFactories[code]();
         const result = await scraper.run();
@@ -223,6 +231,8 @@ export async function register() {
         console.log(`[scraper] ${code}: ${status} — ${result.stationsUpserted} stations, ${result.pricesUpserted} prices in ${(result.durationMs / 1000).toFixed(1)}s`);
       } catch (err) {
         console.error(`[scraper] ${code}: fatal error —`, err);
+      } finally {
+        running = false;
       }
     }
 

@@ -130,7 +130,6 @@ export class CroatiaScraper extends BaseScraper {
         // Filter unreasonable prices (EUR/L)
         if (c.cijena <= 0.3 || c.cijena > 4.0) continue;
 
-        const key = `${externalId}:${fuelType}`;
         // Keep the cheapest price per station per fuel type
         const existing = prices.find(
           (p) => p.stationExternalId === externalId && p.fuelType === fuelType,

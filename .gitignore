@@ -49,3 +49,12 @@ valhalla_tiles/
 *.pmtiles
 
 /src/generated/prisma
+
+# enforce single package manager (npm)
+pnpm-lock.yaml
+pnpm-workspace.yaml
+yarn.lock
+bun.lockb
+
+# oh-my-claudecode local state
+.omc/

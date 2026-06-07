@@ -50,6 +50,28 @@ function buildInfoWindowHtml(opts: {
   return `<h4>${opts.name}</h4><h5>${addr}</h5>${priceImgs}`;
 }
 
+describe("parsePrice (currency-aware disambiguation)", () => {
+  it("treats a lone dot as decimal for unit-magnitude currencies (1.518 EUR → 1.518)", async () => {
+    const { parsePrice } = await import("./fuelo");
+    expect(parsePrice("1.518", "EUR")).toBeCloseTo(1.518, 3);
+  });
+
+  it("treats a lone dot as thousands sep for large-unit currencies (1.518 HUF → 1518)", async () => {
+    const { parsePrice } = await import("./fuelo");
+    expect(parsePrice("1.518", "HUF")).toBe(1518);
+  });
+
+  it("treats a lone comma as decimal (563,8 HUF → 563.8)", async () => {
+    const { parsePrice } = await import("./fuelo");
+    expect(parsePrice("563,8", "HUF")).toBeCloseTo(563.8, 1);
+  });
+
+  it("treats dot+comma as EU thousands+decimal (1.234,56 EUR → 1234.56)", async () => {
+    const { parsePrice } = await import("./fuelo");
+    expect(parsePrice("1.234,56", "EUR")).toBeCloseTo(1234.56, 2);
+  });
+});
+
 describe("fuelo shared helpers", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());

@@ -1,28 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { fuelTypeEnum } from "@/types/fuel";
 import type { StationsGeoJSONCollection, StationGeoJSON } from "@/types/station";
-
-const VALID_FUEL_TYPES = [
-  "E5", "E5_PREMIUM", "E10", "E5_98", "E98_E10",
-  "B7", "B7_PREMIUM", "B10", "B_AGRICULTURAL", "HVO",
-  "LPG", "CNG", "LNG", "H2", "ADBLUE", "EV",
-] as const;
 
 const MAX_COORDINATES = 2000;
 const MAX_RESULTS = 5000;
-// PostGIS ST_DWithin on geography silently misses matches when the LineString
-// has too many vertices (observed with 2000-point, 670km+ routes). Splitting
-// into shorter segments and merging results works around this.
-const SEGMENT_SIZE = 200;
-const SEGMENT_OVERLAP = 20;
+// 1 degree of latitude ≈ 111.32 km. Pad the bbox by the corridor distance
+// converted to degrees, with 20% slack for longitude convergence at high
+// latitudes, so the && bbox prefilter never clips a station ST_DWithin keeps.
+const KM_PER_DEGREE = 111.32;
+
+// Per-IP rate limit for the corridor endpoint (single Node instance).
+const RATE_LIMIT = 30;
+const RATE_WINDOW_MS = 60_000;
+
+// Bounded, finite coordinate pair [lon, lat] — matches /api/route and
+// /api/route-detour so garbage/Infinity coords can't reach PostGIS.
+const coordSchema = z.tuple([
+  z.number().finite().min(-180).max(180),
+  z.number().finite().min(-90).max(90),
+]);
 
 const bodySchema = z.object({
   geometry: z.object({
     type: z.literal("LineString"),
-    coordinates: z.array(z.tuple([z.number(), z.number()])).min(2).max(MAX_COORDINATES),
+    coordinates: z.array(coordSchema).min(2).max(MAX_COORDINATES),
   }),
-  fuel: z.enum(VALID_FUEL_TYPES),
+  fuel: fuelTypeEnum,
   corridorKm: z.number().min(0.5).max(50).optional().default(5),
 });
 
@@ -42,6 +48,14 @@ interface StationRow {
 }
 
 export async function POST(request: NextRequest) {
+  const r = rateLimit(`route-stations:${clientIp(request.headers)}`, RATE_LIMIT, RATE_WINDOW_MS);
+  if (!r.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(Math.ceil((r.resetAt - Date.now()) / 1000)) } },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -61,108 +75,67 @@ export async function POST(request: NextRequest) {
 
   const coords = geometry.coordinates;
   const corridorMeters = corridorKm * 1000;
+  // Degrees to pad the bbox prefilter (20% slack — see KM_PER_DEGREE comment).
+  const degPad = (corridorKm / KM_PER_DEGREE) * 1.2;
   const isEV = fuel === "EV";
 
-  // Split long LineStrings into overlapping segments to work around PostGIS
-  // ST_DWithin(geography) accuracy issues with high-vertex-count geometries.
-  const segments: [number, number][][] = [];
-  if (coords.length <= SEGMENT_SIZE) {
-    segments.push(coords);
-  } else {
-    for (let start = 0; start < coords.length; start += SEGMENT_SIZE - SEGMENT_OVERLAP) {
-      const end = Math.min(start + SEGMENT_SIZE, coords.length);
-      segments.push(coords.slice(start, end));
-      if (end === coords.length) break;
-    }
-  }
-
-  const fullWkt = `LINESTRING(${coords.map(([lon, lat]) => `${lon} ${lat}`).join(",")})`;
+  // Build the route WKT once and bind it as $1. The && bbox prefilter uses the
+  // raw-geometry GiST (stations_geom_idx); ST_DWithin on geography uses the
+  // functional GiST (stations_geom_geography_idx). A single query — no
+  // segment-splitting needed.
+  const routeWkt = `LINESTRING(${coords.map(([lon, lat]) => `${lon} ${lat}`).join(",")})`;
 
   try {
-    // Query each segment in parallel, then deduplicate
-    const segmentResults = await Promise.all(
-      segments.map((seg) => {
-        const segWkt = `LINESTRING(${seg.map(([lon, lat]) => `${lon} ${lat}`).join(",")})`;
-        const segGeom = `ST_GeomFromText($1, 4326)`;
-        return isEV
-          ? prisma.$queryRawUnsafe<StationRow[]>(
-              `
-              SELECT
-                s.id, s.name, s.brand, s.address, s.city,
-                ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
-                NULL::float AS price, 'EUR' AS currency,
-                NULL::timestamptz AS reported_at,
-                0::float AS route_fraction,
-                0::float AS distance_m
-              FROM stations s
-              WHERE s.station_type IN ('ev_charger', 'both')
-                AND ST_DWithin(s.geom::geography, ${segGeom}::geography, $2)
-              `,
-              segWkt,
-              corridorMeters,
-            )
-          : prisma.$queryRawUnsafe<StationRow[]>(
-              `
-              SELECT
-                s.id, s.name, s.brand, s.address, s.city,
-                ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
-                fp.price::float AS price,
-                COALESCE(fp.currency, 'EUR') AS currency,
-                fp.reported_at,
-                0::float AS route_fraction,
-                0::float AS distance_m
-              FROM stations s
-              JOIN LATERAL (
-                SELECT price, currency, reported_at FROM fuel_prices
-                WHERE station_id = s.id AND fuel_type = $3
-                ORDER BY reported_at DESC NULLS LAST LIMIT 1
-              ) fp ON true
-              WHERE ST_DWithin(s.geom::geography, ${segGeom}::geography, $2)
-              `,
-              segWkt,
-              corridorMeters,
-              fuel,
-            );
-      }),
-    );
+    const allRows = isEV
+      ? await prisma.$queryRawUnsafe<StationRow[]>(
+          `
+          SELECT
+            s.id, s.name, s.brand, s.address, s.city,
+            ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
+            NULL::float AS price, 'EUR' AS currency,
+            NULL::timestamptz AS reported_at,
+            ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction,
+            ST_Distance(s.geom::geography, ST_GeomFromText($1, 4326)::geography)::float AS distance_m
+          FROM stations s
+          WHERE s.station_type IN ('ev_charger', 'both')
+            AND s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
+            AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
+          ORDER BY route_fraction
+          `,
+          routeWkt,
+          degPad,
+          corridorMeters,
+        )
+      : await prisma.$queryRawUnsafe<StationRow[]>(
+          `
+          SELECT
+            s.id, s.name, s.brand, s.address, s.city,
+            ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
+            fp.price::float AS price,
+            COALESCE(fp.currency, 'EUR') AS currency,
+            fp.reported_at,
+            ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction,
+            ST_Distance(s.geom::geography, ST_GeomFromText($1, 4326)::geography)::float AS distance_m
+          FROM stations s
+          JOIN LATERAL (
+            SELECT price, currency, reported_at FROM fuel_prices
+            WHERE station_id = s.id AND fuel_type = $4
+            ORDER BY reported_at DESC NULLS LAST LIMIT 1
+          ) fp ON true
+          WHERE s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
+            AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
+          ORDER BY route_fraction
+          `,
+          routeWkt,
+          degPad,
+          corridorMeters,
+          fuel,
+        );
 
-    // Deduplicate across segments
-    const stationMap = new Map<string, StationRow>();
-    for (const rows of segmentResults) {
-      for (const row of rows) {
-        if (!stationMap.has(row.id)) stationMap.set(row.id, row);
-      }
+    if (allRows.length > MAX_RESULTS) {
+      console.warn(`[route-stations] result truncated at ${MAX_RESULTS} (had ${allRows.length})`);
     }
-
-    // Recompute route_fraction and distance_m against the full LineString
-    const uniqueIds = [...stationMap.keys()];
-    if (uniqueIds.length > 0) {
-      const fullGeom = `ST_GeomFromText($1, 4326)`;
-      const placeholders = uniqueIds.map((_, i) => `$${i + 2}`).join(",");
-      const positioned = await prisma.$queryRawUnsafe<{ id: string; route_fraction: number; distance_m: number }[]>(
-        `
-        SELECT
-          s.id,
-          ST_LineLocatePoint(${fullGeom}, s.geom)::float AS route_fraction,
-          ST_Distance(s.geom::geography, ${fullGeom}::geography)::float AS distance_m
-        FROM stations s
-        WHERE s.id IN (${placeholders})
-        `,
-        fullWkt,
-        ...uniqueIds,
-      );
-      for (const p of positioned) {
-        const row = stationMap.get(p.id);
-        if (row) {
-          row.route_fraction = p.route_fraction;
-          row.distance_m = p.distance_m;
-        }
-      }
-    }
-
-    const rows = [...stationMap.values()]
-      .sort((a, b) => a.route_fraction - b.route_fraction)
-      .slice(0, MAX_RESULTS);
+    const rows = allRows.slice(0, MAX_RESULTS);
 
     const features: StationGeoJSON[] = rows.map((row) => ({
       type: "Feature",

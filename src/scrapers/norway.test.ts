@@ -262,7 +262,7 @@ describe("NorwayScraper", () => {
     expect(prices[0].fuelType).toBe("E5");
   });
 
-  it("falls back to SSR scrape when API auth fails", async () => {
+  it("returns empty (no synthetic stations) when API fails and SSR succeeds", async () => {
     const { NorwayScraper } = await import("./norway");
     const scraper = new NorwayScraper();
 
@@ -274,7 +274,8 @@ describe("NorwayScraper", () => {
         return { ok: false, status: 500 } as Response;
       }
 
-      // SSR fallback page
+      // SSR fallback page responds, but it only carries brand averages
+      // (no per-station coordinates). We must NOT fabricate synthetic stations.
       if (url.includes("drivstoffappen.no/drivstoffpriser")) {
         return {
           ok: true,
@@ -298,17 +299,13 @@ describe("NorwayScraper", () => {
 
     const { stations, prices } = await scraper.fetch();
 
-    // SSR fallback creates synthetic brand stations
-    expect(stations.length).toBeGreaterThan(0);
-    expect(stations[0].brand).toBeDefined();
-
-    // Prices should be in NOK
-    for (const p of prices) {
-      expect(p.currency).toBe("NOK");
-    }
+    // SSR must not fabricate fake Oslo-center stations: returning empty lets
+    // base.ts's empty-fetch guard preserve last-known-good data.
+    expect(stations).toHaveLength(0);
+    expect(prices).toHaveLength(0);
   });
 
-  it("falls back to Nuxt 2 payload when no Nuxt 3 script found", async () => {
+  it("returns empty even when SSR page carries a Nuxt 2 brand payload", async () => {
     const { NorwayScraper } = await import("./norway");
     const scraper = new NorwayScraper();
 
@@ -337,83 +334,8 @@ describe("NorwayScraper", () => {
 
     const { stations, prices } = await scraper.fetch();
 
-    expect(stations.length).toBeGreaterThan(0);
-    expect(prices.length).toBeGreaterThan(0);
-    for (const p of prices) {
-      expect(p.currency).toBe("NOK");
-    }
-  });
-
-  it("falls back to regex extraction when no Nuxt payload found", async () => {
-    const { NorwayScraper } = await import("./norway");
-    const scraper = new NorwayScraper();
-
-    vi.mocked(fetch).mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input.toString();
-
-      if (url.includes("authorization-sessions")) {
-        return { ok: false, status: 500 } as Response;
-      }
-
-      if (url.includes("drivstoffappen.no/drivstoffpriser")) {
-        return {
-          ok: true,
-          text: async () => `
-            <html>
-            <script>
-            var prices = [
-              {"brandName":"Esso","brandLogo":"esso.png","fuelType":"FT_D","price":20.15,"priceOld":19.9,"date":"2026-04-20"},
-              {"brandName":"YX","brandLogo":"yx.png","fuelType":"FT_95","price":22.30,"priceOld":22.0,"date":"2026-04-20"}
-            ];
-            </script>
-            </html>
-          `,
-        } as Response;
-      }
-
-      return { ok: false, status: 404 } as Response;
-    });
-
-    const { stations, prices } = await scraper.fetch();
-
-    expect(stations.length).toBeGreaterThan(0);
-    expect(prices.length).toBeGreaterThan(0);
-    for (const p of prices) {
-      expect(p.currency).toBe("NOK");
-    }
-  });
-
-  it("handles Nuxt 3 parse error and falls through to Nuxt 2", async () => {
-    const { NorwayScraper } = await import("./norway");
-    const scraper = new NorwayScraper();
-
-    vi.mocked(fetch).mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input.toString();
-
-      if (url.includes("authorization-sessions")) {
-        return { ok: false, status: 500 } as Response;
-      }
-
-      if (url.includes("drivstoffappen.no/drivstoffpriser")) {
-        return {
-          ok: true,
-          text: async () => `
-            <html>
-            <script id="__NUXT_DATA__" type="application/json">THIS IS NOT VALID JSON</script>
-            <script>
-            window.__NUXT__ = {data:[{brands:[{brandName:"UnoX",brandLogo:"u.png",fuelType:"FT_95",price:21.00,priceOld:20.5,date:"2026-04-20"}]}]};
-            </script>
-            </html>
-          `,
-        } as Response;
-      }
-
-      return { ok: false, status: 404 } as Response;
-    });
-
-    const { stations, prices } = await scraper.fetch();
-    expect(stations.length).toBeGreaterThan(0);
-    expect(prices[0].currency).toBe("NOK");
+    expect(stations).toHaveLength(0);
+    expect(prices).toHaveLength(0);
   });
 
   it("throws when both API and SSR fail", async () => {

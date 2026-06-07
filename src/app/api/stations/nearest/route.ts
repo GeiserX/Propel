@@ -1,26 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { fuelTypeEnum } from "@/types/fuel";
 import type { StationsGeoJSONCollection, StationGeoJSON } from "@/types/station";
-
-const VALID_FUEL_TYPES = [
-  "E5",
-  "E5_PREMIUM",
-  "E10",
-  "E5_98",
-  "E98_E10",
-  "B7",
-  "B7_PREMIUM",
-  "B10",
-  "B_AGRICULTURAL",
-  "HVO",
-  "LPG",
-  "CNG",
-  "LNG",
-  "H2",
-  "ADBLUE",
-  "EV",
-] as const;
 
 const querySchema = z.object({
   lat: z
@@ -41,7 +23,7 @@ const querySchema = z.object({
     .refine((n) => !Number.isNaN(n) && n >= 0.5 && n <= 100, {
       message: "radius_km must be a number between 0.5 and 100",
     }),
-  fuel: z.enum(VALID_FUEL_TYPES),
+  fuel: fuelTypeEnum,
   limit: z
     .string()
     .optional()
@@ -159,7 +141,7 @@ export async function GET(request: NextRequest) {
           fuel,
         );
 
-    const features: (StationGeoJSON & { properties: StationGeoJSON["properties"] & { distance_km: number } })[] = rows.map((row) => ({
+    const features: StationGeoJSON[] = rows.map((row) => ({
       type: "Feature",
       geometry: {
         type: "Point",
@@ -175,11 +157,11 @@ export async function GET(request: NextRequest) {
         currency: row.currency,
         ...(row.price != null ? { price: row.price } : {}),
         ...(row.reported_at ? { reportedAt: new Date(row.reported_at).toISOString() } : {}),
-        distance_km: Math.round(row.distance_km * 1000) / 1000,
+        distanceKm: Math.round(row.distance_km * 1000) / 1000,
       },
     }));
 
-    const collection: StationsGeoJSONCollection & { features: typeof features } = {
+    const collection: StationsGeoJSONCollection = {
       type: "FeatureCollection",
       features,
     };

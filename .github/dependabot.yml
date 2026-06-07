@@ -1,60 +1,63 @@
 version: 2
 updates:
-- package-ecosystem: npm
-  directory: /
-  schedule:
-    interval: weekly
-    day: monday
-  open-pull-requests-limit: 10
-  groups:
-    minor-and-patch:
-      update-types:
-      - minor
-      - patch
-    npm_security:
-      applies-to: security-updates
-      patterns:
-      - '*'
-  reviewers:
-  - GeiserX
-- package-ecosystem: docker
-  directory: /docker
-  schedule:
-    interval: weekly
-    day: monday
-  open-pull-requests-limit: 10
-  commit-message:
-    prefix: docker
-  labels:
-  - dependencies
-  - automated
-  groups:
-    minor-and-patch:
-      patterns:
-      - '*'
-      update-types:
-      - minor
-      - patch
-    docker-security:
-      applies-to: security-updates
-      patterns:
-      - '*'
-  ignore:
-  - dependency-name: '*'
-    update-types:
-    - version-update:semver-major
-- package-ecosystem: github-actions
-  directory: /
-  schedule:
-    interval: weekly
-    day: monday
-  groups:
-    actions:
-      patterns:
-      - '*'
-    github_actions_security:
-      applies-to: security-updates
-      patterns:
-      - '*'
-  reviewers:
-  - GeiserX
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+      npm_security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+    reviewers:
+      - GeiserX
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: docker
+    labels:
+      - dependencies
+      - automated
+    groups:
+      minor-and-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+      docker-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+  # github-actions: now SHA-pinned in workflows, so Dependabot keeps the pins
+  # current. NO semver-major ignore block here — pins must not silently freeze
+  # on major bumps (that caused org-wide action drift previously).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - '*'
+      github_actions_security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+    reviewers:
+      - GeiserX

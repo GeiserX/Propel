@@ -1,5 +1,90 @@
 const VALHALLA_URL = process.env.VALHALLA_URL;
 
+// ---------------------------------------------------------------------------
+// Global in-process concurrency semaphore.
+//
+// Bounds the TOTAL number of in-flight Valhalla HTTP calls across ALL incoming
+// requests on this single Node instance. Valhalla is a self-hosted ~2GB engine
+// that degrades badly under burst load (route-detour alone can fan out to
+// hundreds of /route calls). Every Valhalla fetch in this module is gated by
+// this semaphore, so effective concurrency is bounded regardless of how many
+// requests or how large their worker pools are.
+//
+// Single-instance only (Pumperly runs one Node process — same assumption as
+// the rate limiter). A counting semaphore: `inflight` tracks active slots,
+// `waiters` is a FIFO queue of callers parked waiting for a free slot.
+const MAX_VALHALLA_INFLIGHT = Number(process.env.VALHALLA_MAX_INFLIGHT ?? 6);
+
+interface Waiter {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+  onAbort?: () => void;
+  signal?: AbortSignal;
+}
+
+let inflight = 0;
+const waiters: Waiter[] = [];
+
+/**
+ * Acquire one semaphore slot. Resolves immediately if a slot is free, otherwise
+ * parks in a FIFO queue until `release()` wakes it. If `signal` aborts while the
+ * caller is queued, the returned promise rejects with a DOMException("AbortError")
+ * and the waiter is removed from the queue (it never consumed a slot, so no
+ * release is needed for an aborted waiter).
+ */
+function acquire(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  }
+  if (inflight < MAX_VALHALLA_INFLIGHT) {
+    inflight++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve, reject) => {
+    const waiter: Waiter = { resolve, reject, signal };
+    if (signal) {
+      const onAbort = () => {
+        const idx = waiters.indexOf(waiter);
+        if (idx !== -1) waiters.splice(idx, 1);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      waiter.onAbort = onAbort;
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+    waiters.push(waiter);
+  });
+}
+
+/**
+ * Release one semaphore slot. If a waiter is queued, hand the slot directly to
+ * it (keeping `inflight` constant) rather than dropping to zero and racing.
+ * Otherwise decrement the in-flight count.
+ */
+function release(): void {
+  const next = waiters.shift();
+  if (next) {
+    if (next.signal && next.onAbort) {
+      next.signal.removeEventListener("abort", next.onAbort);
+    }
+    // Slot is handed straight to the waiter; inflight stays unchanged.
+    next.resolve();
+    return;
+  }
+  inflight--;
+}
+
+/**
+ * Internal semaphore accessors exposed for unit tests only. Not part of the
+ * public routing API — do not use from application code.
+ */
+export const __semaphore = {
+  acquire,
+  release,
+  maxInflight: () => MAX_VALHALLA_INFLIGHT,
+  inflight: () => inflight,
+  waiterCount: () => waiters.length,
+};
+
 export interface ValhallaRoute {
   geometry: GeoJSON.LineString;
   distance: number; // km
@@ -23,6 +108,45 @@ interface ValhallaLeg {
 interface ValhallaTrip {
   legs: ValhallaLeg[];
   summary: { length: number; time: number };
+}
+
+/** Safely parse a fetch Response body as JSON, returning null on any failure. */
+async function parseJsonSafe(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    // Non-JSON body (e.g. HTML error page during Valhalla warmup)
+    return null;
+  }
+}
+
+/** Runtime guard: a leg has an encoded shape and a numeric summary.time. */
+function isValhallaLeg(value: unknown): value is ValhallaLeg {
+  if (typeof value !== "object" || value === null) return false;
+  const leg = value as Record<string, unknown>;
+  const summary = leg.summary as Record<string, unknown> | undefined;
+  return (
+    typeof leg.shape === "string" &&
+    typeof summary === "object" &&
+    summary !== null &&
+    typeof summary.time === "number" &&
+    typeof summary.length === "number"
+  );
+}
+
+/** Runtime guard: a trip has a legs array and a numeric summary.time/length. */
+function isValhallaTrip(value: unknown): value is ValhallaTrip {
+  if (typeof value !== "object" || value === null) return false;
+  const trip = value as Record<string, unknown>;
+  const summary = trip.summary as Record<string, unknown> | undefined;
+  return (
+    Array.isArray(trip.legs) &&
+    trip.legs.every(isValhallaLeg) &&
+    typeof summary === "object" &&
+    summary !== null &&
+    typeof summary.time === "number" &&
+    typeof summary.length === "number"
+  );
 }
 
 /** Decode Valhalla encoded polyline (precision 6). */
@@ -180,17 +304,24 @@ export async function getRoute(
     directions_options: { units: "kilometers" },
   };
 
-  const res = await fetch(`${VALHALLA_URL}/route`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
+  await acquire();
+  try {
+    const res = await fetch(`${VALHALLA_URL}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
 
-  if (!res.ok) return null;
+    if (!res.ok) return null;
 
-  const data: { trip: ValhallaTrip } = await res.json();
-  return tripToRoute(data.trip);
+    const data = await parseJsonSafe(res);
+    const trip = (data as { trip?: unknown } | null)?.trip;
+    if (!isValhallaTrip(trip)) return null;
+    return tripToRoute(trip);
+  } finally {
+    release();
+  }
 }
 
 /** Get just the duration for a short route leg (no geometry decoding). */
@@ -201,27 +332,36 @@ export async function getRouteDuration(
 ): Promise<number | null> {
   if (!VALHALLA_URL) return null;
 
-  const res = await fetch(`${VALHALLA_URL}/route`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      locations: locations.map((l) => {
-        const loc: Record<string, unknown> = { lat: l.lat, lon: l.lon };
-        if (l.type) loc.type = l.type;
-        return loc;
+  // Gate on the global semaphore; if the caller's signal aborts while queued,
+  // acquire() rejects with AbortError before any slot is consumed.
+  await acquire(signal);
+  try {
+    const res = await fetch(`${VALHALLA_URL}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locations: locations.map((l) => {
+          const loc: Record<string, unknown> = { lat: l.lat, lon: l.lon };
+          if (l.type) loc.type = l.type;
+          return loc;
+        }),
+        costing,
+        directions_options: { units: "kilometers" },
+        directions_type: "none",
       }),
-      costing,
-      directions_options: { units: "kilometers" },
-      directions_type: "none",
-    }),
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
-      : AbortSignal.timeout(10000),
-  });
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
+        : AbortSignal.timeout(10000),
+    });
 
-  if (!res.ok) return null;
-  const data: { trip: ValhallaTrip } = await res.json();
-  return data.trip.summary.time;
+    if (!res.ok) return null;
+    const data = await parseJsonSafe(res);
+    const trip = (data as { trip?: unknown } | null)?.trip;
+    if (!isValhallaTrip(trip)) return null;
+    return trip.summary.time;
+  } finally {
+    release();
+  }
 }
 
 /** Get routes with alternatives (only for simple A->B, no waypoints). */
@@ -239,24 +379,32 @@ export async function getRoutes(
     directions_options: { units: "kilometers" },
   };
 
-  const res = await fetch(`${VALHALLA_URL}/route`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
-  });
+  await acquire();
+  try {
+    const res = await fetch(`${VALHALLA_URL}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
 
-  if (!res.ok) return [];
+    if (!res.ok) return [];
 
-  const data: { trip: ValhallaTrip; alternates?: { trip: ValhallaTrip }[] } = await res.json();
-  const routes: ValhallaRoute[] = [];
+    const data = await parseJsonSafe(res);
+    if (typeof data !== "object" || data === null) return [];
+    const parsed = data as { trip?: unknown; alternates?: unknown };
+    const routes: ValhallaRoute[] = [];
 
-  if (data.trip) routes.push(tripToRoute(data.trip));
-  if (data.alternates) {
-    for (const alt of data.alternates) {
-      if (alt.trip) routes.push(tripToRoute(alt.trip));
+    if (isValhallaTrip(parsed.trip)) routes.push(tripToRoute(parsed.trip));
+    if (Array.isArray(parsed.alternates)) {
+      for (const alt of parsed.alternates) {
+        const altTrip = (alt as { trip?: unknown } | null)?.trip;
+        if (isValhallaTrip(altTrip)) routes.push(tripToRoute(altTrip));
+      }
     }
-  }
 
-  return routes;
+    return routes;
+  } finally {
+    release();
+  }
 }

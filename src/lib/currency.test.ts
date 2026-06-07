@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CURRENCIES, type Currency, type CurrencyInfo } from "./currency";
+import { CURRENCIES, isValidExchangeRates, type Currency, type CurrencyInfo } from "./currency";
 
 describe("CURRENCIES", () => {
   it("is a non-empty array", () => {
@@ -60,5 +60,37 @@ describe("CURRENCIES", () => {
 
   it("has at least 30 currencies", () => {
     expect(CURRENCIES.length).toBeGreaterThanOrEqual(30);
+  });
+});
+
+describe("isValidExchangeRates", () => {
+  it("accepts a well-formed payload", () => {
+    expect(
+      isValidExchangeRates({ base: "EUR", rates: { USD: 1.1 }, date: "2026-06-07" }),
+    ).toBe(true);
+  });
+
+  it("rejects payload with missing date", () => {
+    expect(isValidExchangeRates({ base: "EUR", rates: { USD: 1.1 } })).toBe(false);
+  });
+
+  it("rejects payload with non-string date", () => {
+    expect(
+      isValidExchangeRates({ base: "EUR", rates: { USD: 1.1 }, date: 12345 }),
+    ).toBe(false);
+  });
+
+  it("rejects payload with missing rates object", () => {
+    expect(isValidExchangeRates({ base: "EUR", date: "2026-06-07" })).toBe(false);
+  });
+
+  it("rejects payload with missing base", () => {
+    expect(isValidExchangeRates({ rates: { USD: 1.1 }, date: "2026-06-07" })).toBe(false);
+  });
+
+  it("rejects null and non-object values", () => {
+    expect(isValidExchangeRates(null)).toBe(false);
+    expect(isValidExchangeRates(undefined)).toBe(false);
+    expect(isValidExchangeRates("nope")).toBe(false);
   });
 });

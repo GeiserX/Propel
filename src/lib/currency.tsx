@@ -110,6 +110,23 @@ export interface ExchangeRates {
   date: string;
 }
 
+/**
+ * Runtime guard for the /api/exchange-rates payload. The upstream is the ECB
+ * feed proxied through our API; if `date` is missing the downstream
+ * `new Date(rates.date + ...)` produces an Invalid Date, so we require a
+ * string `date`, a string `base`, and a `rates` object before trusting it.
+ */
+export function isValidExchangeRates(data: unknown): data is ExchangeRates {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.rates === "object" &&
+    d.rates !== null &&
+    typeof d.date === "string" &&
+    typeof d.base === "string"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -153,7 +170,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     fetch("/api/exchange-rates")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.rates) setRates(data as ExchangeRates);
+        if (isValidExchangeRates(data)) setRates(data);
       })
       .catch(() => {});
   }, []);

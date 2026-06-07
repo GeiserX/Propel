@@ -45,13 +45,38 @@ export async function geocode(
   });
   if (!res.ok) return [];
 
-  const data: PhotonResponse = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    // Non-JSON body (e.g. HTML error page) — treat as no results
+    return [];
+  }
 
-  return data.features.map((f) => ({
-    name: f.properties.name ?? query,
-    city: f.properties.city ?? null,
-    state: f.properties.state ?? null,
-    country: f.properties.country ?? null,
-    coordinates: f.geometry.coordinates,
-  }));
+  const features = (data as { features?: unknown } | null)?.features;
+  if (!Array.isArray(features)) return [];
+
+  const results: PhotonResult[] = [];
+  for (const f of features as PhotonFeature[]) {
+    const coordinates = f?.geometry?.coordinates;
+    // Skip malformed features lacking a valid [lon, lat] pair
+    if (
+      !Array.isArray(coordinates) ||
+      coordinates.length < 2 ||
+      typeof coordinates[0] !== "number" ||
+      typeof coordinates[1] !== "number"
+    ) {
+      continue;
+    }
+    const properties = f.properties ?? {};
+    results.push({
+      name: properties.name ?? query,
+      city: properties.city ?? null,
+      state: properties.state ?? null,
+      country: properties.country ?? null,
+      coordinates: [coordinates[0], coordinates[1]],
+    });
+  }
+
+  return results;
 }

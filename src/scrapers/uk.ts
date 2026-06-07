@@ -4,7 +4,7 @@ import type { FuelType } from "../types/station";
 // ---------------------------------------------------------------------------
 // United Kingdom — CMA Open Data Scheme
 // ---------------------------------------------------------------------------
-// 14 separate JSON endpoints, one per retailer. All follow the same schema:
+// 13 separate JSON endpoints, one per retailer. All follow the same schema:
 // { last_updated, stations: [{ site_id, brand, address, postcode, location, prices }] }
 // Prices in pence per litre. Open Government Licence v3.0.
 // Shell provides HTML (not JSON) — excluded.

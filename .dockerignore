@@ -1,0 +1,10 @@
+.git
+node_modules
+.next
+coverage
+.env
+.env*.local
+pnpm-lock.yaml
+pnpm-workspace.yaml
+*.tsbuildinfo
+.omc
