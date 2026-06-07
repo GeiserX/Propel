@@ -50,6 +50,16 @@ describe("bandFor (per-currency price bands)", () => {
     expect(1518 >= band.min && 1518 <= band.max).toBe(false);
   });
 
+  it("accepts a cheap Czech LPG price (13.9 CZK)", () => {
+    const band = bandFor("CZK");
+    expect(13.9 >= band.min && 13.9 <= band.max).toBe(true);
+  });
+
+  it("rejects a single-digit garbage CZK price (5)", () => {
+    const band = bandFor("CZK");
+    expect(5 >= band.min && 5 <= band.max).toBe(false);
+  });
+
   it("falls back to a permissive default band for unknown currencies", () => {
     const band = bandFor("ZZZ");
     expect(band.min).toBe(0.1);

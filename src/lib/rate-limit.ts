@@ -41,7 +41,19 @@ export function rateLimit(key: string, limit: number, windowMs: number): RateLim
   return { ok: true, remaining: limit - b.count, resetAt: b.resetAt };
 }
 
-/** Extract the client IP from proxy headers (Caddy sets X-Forwarded-For). */
+/**
+ * Extract the client IP from proxy headers, taking the FIRST value of
+ * X-Forwarded-For, then falling back to X-Real-IP, then "unknown".
+ *
+ * SECURITY: This assumes a TRUSTED reverse proxy (Caddy) that REPLACES the
+ * X-Forwarded-For header on each request — it must not blindly append to a
+ * client-supplied value. Behind such a proxy the first XFF entry is the real
+ * client IP and the per-IP rate-limit key is reliable. If Pumperly is exposed
+ * DIRECTLY (no proxy, or a proxy that appends rather than replaces XFF), a
+ * client can spoof X-Forwarded-For / X-Real-IP and forge an arbitrary key,
+ * defeating the per-IP limiter. Self-hosters MUST front this app with Caddy
+ * (or an equivalent proxy that sanitizes these headers).
+ */
 export function clientIp(headers: Headers): string {
   const xff = headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0]?.trim() || "unknown";

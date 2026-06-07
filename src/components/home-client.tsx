@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FuelType, StationGeoJSON, StationsGeoJSONCollection } from "@/types/station";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { Route } from "@/components/map/route-layer";
+import type { RouteState, DetourBasis } from "@/types/route";
 import { I18nProvider, type Locale } from "@/lib/i18n";
 import { CurrencyProvider } from "@/lib/currency";
 import { ThemeProvider } from "@/lib/theme";
@@ -20,16 +21,7 @@ interface Props {
   locale?: Locale;
 }
 
-export interface RouteState {
-  routes: Route[];
-  primaryIndex: number;
-}
-
 type GeoState = "idle" | "loading" | "active" | "denied";
-
-// Detour basis: "selected" measures detour against the chosen route's geometry
-// (route-specific); "any" measures the global origin→station→destination optimum.
-export type DetourBasis = "selected" | "any";
 
 export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale }: Props) {
   const [selectedFuel, setSelectedFuel] = useState<FuelType>(defaultFuel as FuelType);

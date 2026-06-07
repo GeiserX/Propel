@@ -69,7 +69,7 @@ const PRICE_BANDS: Record<string, PriceBand> = {
   RSD: { min: 60, max: 600 },
   TRY: { min: 10, max: 400 },
   PLN: { min: 2, max: 20 },
-  CZK: { min: 15, max: 150 },
+  CZK: { min: 10, max: 150 },
   BGN: { min: 1, max: 10 },
   MKD: { min: 30, max: 300 },
   BAM: { min: 1, max: 10 },

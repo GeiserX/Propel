@@ -6,24 +6,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const MOCK_VALHALLA = "http://valhalla.test";
 
-// Simple encoded polyline for testing decodePolyline:
-// The Valhalla polyline uses precision 6. We encode two points:
-// (40.0, -3.0) and (40.1, -2.9)
-// lat1=40.0 => 40000000, lon1=-3.0 => -3000000
-// lat2=40.1 => 40100000 (delta +100000), lon2=-2.9 => -2900000 (delta +100000)
-
-function encodeValue(value: number): string {
-  let v = value < 0 ? ~(value << 1) : value << 1;
-  let result = "";
-  while (v >= 0x20) {
-    result += String.fromCharCode((v & 0x1f) | 0x20 + 63);
-    v >>= 5;
-  }
-  // Actually let's use a known encoded polyline from Valhalla docs
-  // For simplicity, test via the round-trip through the exported API
-  return result + String.fromCharCode(v + 63);
-}
-
 describe("valhalla module", () => {
   const originalEnv = { ...process.env };
 
@@ -97,6 +79,27 @@ describe("valhalla module", () => {
       await expect(__semaphore.acquire(controller.signal)).rejects.toMatchObject({
         name: "AbortError",
       });
+      expect(__semaphore.inflight()).toBe(0);
+    });
+
+    it("does not drive inflight negative on an over-release (defensive floor)", async () => {
+      const { __semaphore } = await import("./valhalla");
+      expect(__semaphore.inflight()).toBe(0);
+      expect(__semaphore.waiterCount()).toBe(0);
+
+      // An accidental release with no slot held must not underflow the counter.
+      __semaphore.release();
+      expect(__semaphore.inflight()).toBe(0);
+
+      // Multiple spurious releases stay clamped at zero, so a later valid
+      // acquire still sees a fresh, un-corrupted pool.
+      __semaphore.release();
+      __semaphore.release();
+      expect(__semaphore.inflight()).toBe(0);
+
+      await __semaphore.acquire();
+      expect(__semaphore.inflight()).toBe(1);
+      __semaphore.release();
       expect(__semaphore.inflight()).toBe(0);
     });
   });

@@ -101,6 +101,15 @@ export interface FueloConfig {
  * in the price string is a genuine decimal point (e.g. EUR "1.518" = 1.518).
  * For all other currencies a lone dot is a thousands separator
  * (e.g. HUF "1.518" = 1518).
+ *
+ * Large-unit currencies (HUF/CZK/TRY/MKD/RSD; per-litre prices in the tens or
+ * hundreds) are deliberately NOT listed here: Fuelo emits their decimals with a
+ * comma (e.g. "38,50 CZK", "563,8 HUF"), so a lone dot is treated as a
+ * thousands separator. Adding CZK here would break the legitimate
+ * HUF-style "1.518" → 1518 thousands case. The defence against a stray
+ * lone-dot mis-parse (e.g. "38.50 CZK" → 3850) is the second line: the
+ * per-currency PRICE_BANDS check in base.ts, which rejects the out-of-band
+ * result.
  */
 const DECIMAL_UNIT = new Set(["EUR", "GBP", "CHF", "BGN", "BAM", "PLN", "RON"]);
 
@@ -110,6 +119,10 @@ const DECIMAL_UNIT = new Set(["EUR", "GBP", "CHF", "BGN", "BAM", "PLN", "RON"]);
  *
  * The lone-dot case is ambiguous ("1.518" → 1.518 EUR vs 1518 HUF), so the
  * currency is required to disambiguate (see DECIMAL_UNIT).
+ *
+ * Assumes per-litre magnitude inputs (at most a few digits before the
+ * separators); multi-grouped values like "1.234.567" are not real fuel prices
+ * and are not handled specially.
  */
 export function parsePrice(raw: string, currency: string): number {
   // Strip everything except digits and the two separators, then trim.

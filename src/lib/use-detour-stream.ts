@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { StationsGeoJSONCollection } from "@/types/station";
-import type { RouteState, DetourBasis } from "@/components/home-client";
+import type { RouteState, DetourBasis } from "@/types/route";
 import { buildRouteIndex, sampleRoute } from "@/lib/route-geometry";
 
 // Debounce interval (ms) for batching per-station stream updates into
 // a single React state update, avoiding excessive re-renders.
 const detourFlushMs = 150;
-// Must match the .max() on the detour API schema
-const detourChunkSize = 500;
+// Must match the .max() on the detour API schema (150 = the route-detour
+// schema max + the MAX_DETOUR_STATIONS default). Larger chunks fail Zod
+// validation → 400 → the whole chunk gets marked detourMin=-1.
+const detourChunkSize = 150;
 // Half-width (km) of the on-route bracket used for route-relative detour anchors.
 const detourAnchorKm = 3;
 
@@ -103,7 +105,7 @@ export function useDetourStream({ primaryStations, routeState, detourBasis }: Us
       const { cum, total } = useRouteRelative ? buildRouteIndex(coords) : { cum: [], total: 0 };
       const anchorFrac = route.distance > 0 ? detourAnchorKm / route.distance : 0.05;
 
-      // Chunk eligible stations so each request stays within the API's .max(500)
+      // Chunk eligible stations so each request stays within the API's .max(150)
       for (let offset = 0; offset < eligible.length; offset += detourChunkSize) {
         if (controller.signal.aborted) return;
         const chunk = eligible.slice(offset, offset + detourChunkSize);

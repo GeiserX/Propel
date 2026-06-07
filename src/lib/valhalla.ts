@@ -59,6 +59,11 @@ function acquire(signal?: AbortSignal): Promise<void> {
  * Release one semaphore slot. If a waiter is queued, hand the slot directly to
  * it (keeping `inflight` constant) rather than dropping to zero and racing.
  * Otherwise decrement the in-flight count.
+ *
+ * The `Math.max(0, ...)` is a defensive floor: a slot must be released exactly
+ * once per successful acquire. If a bug ever double-releases, this prevents
+ * `inflight` from going negative (which would silently raise the effective
+ * concurrency ceiling forever). It does not change behavior on correct usage.
  */
 function release(): void {
   const next = waiters.shift();
@@ -70,7 +75,24 @@ function release(): void {
     next.resolve();
     return;
   }
-  inflight--;
+  inflight = Math.max(0, inflight - 1);
+}
+
+/**
+ * Run `fn` while holding exactly one semaphore slot. Acquires the slot (parking
+ * on the FIFO queue if the pool is full, or rejecting early if `signal` is/aborts),
+ * then runs `fn` inside a try/finally so the slot is released exactly once — even
+ * if `fn` throws or the fetch rejects. This structurally enforces the
+ * release-exactly-once invariant: callers cannot leak a slot by inserting a
+ * statement between acquire and try, because there is no such gap to exploit.
+ */
+async function withSlot<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+  await acquire(signal);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -304,8 +326,10 @@ export async function getRoute(
     directions_options: { units: "kilometers" },
   };
 
-  await acquire();
-  try {
+  // The whole fetch runs inside withSlot, which acquires a semaphore slot and
+  // releases it exactly once in a finally. Do not hoist the fetch out of the
+  // callback or insert work between acquire/try — withSlot owns that boundary.
+  return withSlot(undefined, async () => {
     const res = await fetch(`${VALHALLA_URL}/route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -319,9 +343,7 @@ export async function getRoute(
     const trip = (data as { trip?: unknown } | null)?.trip;
     if (!isValhallaTrip(trip)) return null;
     return tripToRoute(trip);
-  } finally {
-    release();
-  }
+  });
 }
 
 /** Get just the duration for a short route leg (no geometry decoding). */
@@ -332,10 +354,11 @@ export async function getRouteDuration(
 ): Promise<number | null> {
   if (!VALHALLA_URL) return null;
 
-  // Gate on the global semaphore; if the caller's signal aborts while queued,
-  // acquire() rejects with AbortError before any slot is consumed.
-  await acquire(signal);
-  try {
+  // Gate on the global semaphore via withSlot; if the caller's signal aborts
+  // while queued, acquire() rejects with AbortError before any slot is consumed.
+  // withSlot acquires the slot and releases it exactly once in a finally — do
+  // not insert work between acquire/try; that boundary lives inside withSlot.
+  return withSlot(signal, async () => {
     const res = await fetch(`${VALHALLA_URL}/route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -359,9 +382,7 @@ export async function getRouteDuration(
     const trip = (data as { trip?: unknown } | null)?.trip;
     if (!isValhallaTrip(trip)) return null;
     return trip.summary.time;
-  } finally {
-    release();
-  }
+  });
 }
 
 /** Get routes with alternatives (only for simple A->B, no waypoints). */
@@ -379,8 +400,10 @@ export async function getRoutes(
     directions_options: { units: "kilometers" },
   };
 
-  await acquire();
-  try {
+  // The whole fetch runs inside withSlot, which acquires a semaphore slot and
+  // releases it exactly once in a finally. Do not hoist the fetch out of the
+  // callback or insert work between acquire/try — withSlot owns that boundary.
+  return withSlot(undefined, async () => {
     const res = await fetch(`${VALHALLA_URL}/route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -404,7 +427,5 @@ export async function getRoutes(
     }
 
     return routes;
-  } finally {
-    release();
-  }
+  });
 }

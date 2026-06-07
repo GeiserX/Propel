@@ -3,9 +3,13 @@ import { z } from "zod";
 import { getRoute, getRoutes } from "@/lib/valhalla";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
+// Per-IP rate limit for the route endpoint (single Node instance).
+export const RATE_LIMIT = 30;
+const RATE_WINDOW_MS = 60_000;
+
 const coordSchema = z.tuple([
-  z.number().min(-180).max(180),
-  z.number().min(-90).max(90),
+  z.number().finite().min(-180).max(180),
+  z.number().finite().min(-90).max(90),
 ]);
 
 const bodySchema = z.object({
@@ -16,7 +20,7 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   // Per-IP rate limit: 30 requests / minute.
-  const limit = rateLimit(`route:${clientIp(request.headers)}`, 30, 60_000);
+  const limit = rateLimit(`route:${clientIp(request.headers)}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {
     const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
     return NextResponse.json(

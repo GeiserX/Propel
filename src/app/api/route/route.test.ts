@@ -166,18 +166,19 @@ describe("route API", () => {
       { geometry: { type: "LineString", coordinates: [[-3.7, 40.4], [-0.37, 39.47]] }, distance: 350, duration: 12600, bbox: [-3.7, 39.47, -0.37, 40.4], durations: [0, 12600] },
     ]);
 
-    const { POST } = await import("./route");
+    const { POST, RATE_LIMIT } = await import("./route");
     const ip = nextIp();
     const body = { origin: [-3.7, 40.4], destination: [-0.37, 39.47] };
 
-    // First 30 calls from this IP are allowed.
-    for (let i = 0; i < 30; i++) {
+    // First RATE_LIMIT calls from this IP are allowed. Derived from the
+    // exported constant so changing the limit can't silently break the test.
+    for (let i = 0; i < RATE_LIMIT; i++) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ok = (await POST(makeRequest(body, ip) as any)) as any;
       expect(ok.status).toBe(200);
     }
 
-    // 31st call is rate-limited.
+    // The (RATE_LIMIT + 1)th call is rate-limited.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blocked = (await POST(makeRequest(body, ip) as any)) as any;
     expect(blocked.status).toBe(429);

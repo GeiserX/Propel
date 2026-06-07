@@ -1,12 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { Client } from "pg";
 
+// PARITY GATE (automated): instead of hand-copying the production SQL (which can
+// drift from route.ts and stay green), this suite imports the REAL POST handler
+// and drives it against a PostGIS testcontainer. The handler builds the WKT,
+// runs the CTE corridor query, and returns GeoJSON — exercising the same code
+// path production uses, including BOTH indexes the migration defines.
+//
 // Gate the whole suite so the default offline `npm test` never tries to start
 // Docker. Run with SKIP_INTEGRATION unset (and a Docker daemon available) to
 // exercise the real PostGIS corridor query.
 const hasDocker = process.env.SKIP_INTEGRATION !== "1";
 const d = hasDocker ? describe : describe.skip;
+
+// Corridor constants mirror route.ts. DEG_PAD is DERIVED from CORRIDOR_METERS so
+// the test and prod bbox-pad math can't silently disagree.
+const CORRIDOR_KM = 5;
+const CORRIDOR_METERS = CORRIDOR_KM * 1000;
+const DEG_PAD = (CORRIDOR_METERS / 1000 / 111.32) * 1.2;
 
 // A short straight route through central Madrid (lon/lat pairs).
 const ROUTE: [number, number][] = [
@@ -14,13 +26,6 @@ const ROUTE: [number, number][] = [
   [-3.6883, 40.4200],
   [-3.6750, 40.4250],
 ];
-
-const CORRIDOR_METERS = 5000;
-const DEG_PAD = (5 / 111.32) * 1.2;
-
-function routeWkt(coords: [number, number][]): string {
-  return `LINESTRING(${coords.map(([lon, lat]) => `${lon} ${lat}`).join(",")})`;
-}
 
 // Build a >200-point LineString loop around the route so we exercise the path
 // the old segment-splitting code used to cover (single query, many vertices).
@@ -37,9 +42,23 @@ function bigRoute(): [number, number][] {
   return pts;
 }
 
-d("route-stations PostGIS corridor query (integration)", () => {
+// Minimal NextRequest-like object: the handler only touches .json() and
+// .headers.get() (via clientIp). A unique IP per request avoids tripping the
+// in-memory 30/min/IP rate limiter across calls.
+let ipCounter = 0;
+function makeRequest(body: unknown) {
+  const ip = `10.2.0.${++ipCounter}`;
+  return {
+    json: async () => body,
+    headers: new Headers({ "x-forwarded-for": ip }),
+  };
+}
+
+d("route-stations POST handler against PostGIS (integration)", () => {
   let container: StartedPostgreSqlContainer;
   let client: Client;
+  // The real POST handler, imported AFTER DATABASE_URL points at the container.
+  let POST: (req: unknown) => Promise<Response>;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgis/postgis:17-3.4").start();
@@ -63,7 +82,11 @@ d("route-stations PostGIS corridor query (integration)", () => {
         station_type VARCHAR NOT NULL DEFAULT 'fuel'
       )
     `);
+    // BOTH indexes the migration defines: the raw-geometry GiST powers the &&
+    // bbox prefilter; the functional geography GiST powers ST_DWithin. Creating
+    // both makes the test exercise the real index path the handler relies on.
     await client.query("CREATE INDEX stations_geom_idx ON stations USING GIST (geom)");
+    await client.query("CREATE INDEX stations_geom_geography_idx ON stations USING GIST ((geom::geography))");
 
     await client.query(`
       CREATE TABLE fuel_prices (
@@ -103,6 +126,14 @@ d("route-stations PostGIS corridor query (integration)", () => {
        VALUES ($1, 'E5', 1.499, 'EUR')`,
       [outCorridor.rows[0].id],
     );
+
+    // Point @/lib/db at the container BEFORE importing ./route, then reset the
+    // module graph and lazy-import so the Prisma client picks up DATABASE_URL.
+    // Mirrors the lazy-import pattern in route-detour.test.ts.
+    process.env.DATABASE_URL = container.getConnectionUri();
+    vi.resetModules();
+    const mod = await import("./route");
+    POST = mod.POST as unknown as (req: unknown) => Promise<Response>;
   });
 
   afterAll(async () => {
@@ -110,54 +141,57 @@ d("route-stations PostGIS corridor query (integration)", () => {
     await container?.stop();
   });
 
-  it("finds only the in-corridor station with route_fraction strictly inside (0,1)", async () => {
-    const wkt = routeWkt(ROUTE);
-    const res = await client.query<{
-      external_id: string;
-      route_fraction: number;
-      price: string;
-    }>(
-      `
-      SELECT s.external_id,
-             ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction,
-             fp.price
-      FROM stations s
-      JOIN LATERAL (
-        SELECT price FROM fuel_prices
-        WHERE station_id = s.id AND fuel_type = $4
-        ORDER BY reported_at DESC NULLS LAST LIMIT 1
-      ) fp ON true
-      WHERE s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
-        AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
-      ORDER BY route_fraction
-      `,
-      [wkt, DEG_PAD, CORRIDOR_METERS, "E5"],
+  it("returns GeoJSON with only the in-corridor station (the far one is excluded)", async () => {
+    const res = await POST(
+      makeRequest({
+        geometry: { type: "LineString", coordinates: ROUTE },
+        fuel: "E5",
+        corridorKm: CORRIDOR_KM,
+      }),
     );
+    expect(res.status).toBe(200);
 
-    expect(res.rows).toHaveLength(1);
-    expect(res.rows[0].external_id).toBe("in-1");
-    expect(res.rows[0].route_fraction).toBeGreaterThan(0);
-    expect(res.rows[0].route_fraction).toBeLessThan(1);
+    const collection = (await res.json()) as {
+      type: string;
+      features: Array<{ properties: { name: string; routeFraction: number; price?: number } }>;
+    };
+    expect(collection.type).toBe("FeatureCollection");
+    expect(collection.features).toHaveLength(1);
+
+    const f = collection.features[0];
+    expect(f.properties.name).toBe("Repsol Centro");
+    expect(f.properties.price).toBe(1.589);
+    // route_fraction lands strictly inside the route (0,1).
+    expect(f.properties.routeFraction).toBeGreaterThan(0);
+    expect(f.properties.routeFraction).toBeLessThan(1);
+
+    const names = collection.features.map((x) => x.properties.name);
+    expect(names).not.toContain("Cepsa Lejos");
   });
 
-  it("still finds the in-corridor station for a >200-point LineString", async () => {
+  it("still returns the in-corridor station for a >200-point LineString", async () => {
     const coords = bigRoute();
     expect(coords.length).toBeGreaterThan(200);
 
-    const wkt = routeWkt(coords);
-    const res = await client.query<{ external_id: string }>(
-      `
-      SELECT s.external_id
-      FROM stations s
-      WHERE s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
-        AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
-      ORDER BY ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)
-      `,
-      [wkt, DEG_PAD, CORRIDOR_METERS],
+    const res = await POST(
+      makeRequest({
+        geometry: { type: "LineString", coordinates: coords },
+        fuel: "E5",
+        corridorKm: CORRIDOR_KM,
+      }),
     );
+    expect(res.status).toBe(200);
 
-    const ids = res.rows.map((r) => r.external_id);
-    expect(ids).toContain("in-1");
-    expect(ids).not.toContain("out-1");
+    const collection = (await res.json()) as {
+      features: Array<{ properties: { name: string } }>;
+    };
+    const names = collection.features.map((x) => x.properties.name);
+    expect(names).toContain("Repsol Centro");
+    expect(names).not.toContain("Cepsa Lejos");
+  });
+
+  it("DEG_PAD stays in lockstep with the corridor constant", () => {
+    // Guards against the test silently diverging from route.ts's bbox-pad math.
+    expect(DEG_PAD).toBeCloseTo((CORRIDOR_METERS / 1000 / 111.32) * 1.2, 12);
   });
 });

@@ -19,14 +19,14 @@ const MAX_DETOUR_STATIONS = Number(process.env.PUMPERLY_MAX_DETOUR_STATIONS ?? 1
 // TODO(perf): replace per-station before→station→after /route calls with Valhalla /sources_to_targets matrix calls (bucket by ≤400km span, ≤2500 pairs) to cut Valhalla load ~10-100x. Deferred.
 
 const coordSchema = z.tuple([
-  z.number().min(-180).max(180),
-  z.number().min(-90).max(90),
+  z.number().finite().min(-180).max(180),
+  z.number().finite().min(-90).max(90),
 ]);
 
 const stationSchema = z.object({
   id: z.string(),
-  lon: z.number().min(-180).max(180),
-  lat: z.number().min(-90).max(90),
+  lon: z.number().finite().min(-180).max(180),
+  lat: z.number().finite().min(-90).max(90),
   // Route-relative detour anchors (basis = "selected"). When present, detour is
   // measured as route(before → station → after) − onRouteSec, where before/after
   // are on-route points bracketing the station and onRouteSec is the on-route
@@ -43,14 +43,14 @@ const bodySchema = z.object({
   routeDuration: z.number().min(0),
 });
 
-type Station = z.infer<typeof stationSchema>;
+export type Station = z.infer<typeof stationSchema>;
 
 /**
  * Reduce `stations` to at most `cap` entries by even spread across the array.
  * Stations arrive sorted by routeFraction, so taking every k-th element keeps
  * coverage spread along the route rather than clustered. Order is preserved.
  */
-function capByEvenSpread(stations: Station[], cap: number): Station[] {
+export function capByEvenSpread(stations: Station[], cap: number): Station[] {
   if (stations.length <= cap) return stations;
   const step = stations.length / cap;
   const selected: Station[] = [];

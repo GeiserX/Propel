@@ -79,28 +79,33 @@ export async function POST(request: NextRequest) {
   const degPad = (corridorKm / KM_PER_DEGREE) * 1.2;
   const isEV = fuel === "EV";
 
-  // Build the route WKT once and bind it as $1. The && bbox prefilter uses the
-  // raw-geometry GiST (stations_geom_idx); ST_DWithin on geography uses the
-  // functional GiST (stations_geom_geography_idx). A single query — no
-  // segment-splitting needed.
+  // Build the route WKT once and bind it as $1. A CTE parses the WKT a single
+  // time (route.g) instead of re-running ST_GeomFromText on every reference.
+  // The && bbox prefilter uses the raw-geometry GiST (stations_geom_idx) via
+  // r.g::geometry; ST_DWithin on geography uses the functional GiST
+  // (stations_geom_geography_idx) via r.g::geography. A single query — no
+  // segment-splitting needed. LIMIT bounds the DB→app transfer; MAX_RESULTS is
+  // a code constant (not user input) so inlining the integer is safe.
   const routeWkt = `LINESTRING(${coords.map(([lon, lat]) => `${lon} ${lat}`).join(",")})`;
 
   try {
-    const allRows = isEV
+    const rows = isEV
       ? await prisma.$queryRawUnsafe<StationRow[]>(
           `
+          WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)
           SELECT
             s.id, s.name, s.brand, s.address, s.city,
             ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
             NULL::float AS price, 'EUR' AS currency,
             NULL::timestamptz AS reported_at,
-            ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction,
-            ST_Distance(s.geom::geography, ST_GeomFromText($1, 4326)::geography)::float AS distance_m
-          FROM stations s
+            ST_LineLocatePoint(r.g::geometry, s.geom)::float AS route_fraction,
+            ST_Distance(s.geom::geography, r.g::geography)::float AS distance_m
+          FROM stations s, route r
           WHERE s.station_type IN ('ev_charger', 'both')
-            AND s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
-            AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
+            AND s.geom && ST_Expand(r.g::geometry, $2)
+            AND ST_DWithin(s.geom::geography, r.g::geography, $3)
           ORDER BY route_fraction
+          LIMIT ${MAX_RESULTS}
           `,
           routeWkt,
           degPad,
@@ -108,23 +113,25 @@ export async function POST(request: NextRequest) {
         )
       : await prisma.$queryRawUnsafe<StationRow[]>(
           `
+          WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)
           SELECT
             s.id, s.name, s.brand, s.address, s.city,
             ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
             fp.price::float AS price,
             COALESCE(fp.currency, 'EUR') AS currency,
             fp.reported_at,
-            ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction,
-            ST_Distance(s.geom::geography, ST_GeomFromText($1, 4326)::geography)::float AS distance_m
-          FROM stations s
+            ST_LineLocatePoint(r.g::geometry, s.geom)::float AS route_fraction,
+            ST_Distance(s.geom::geography, r.g::geography)::float AS distance_m
+          FROM route r, stations s
           JOIN LATERAL (
             SELECT price, currency, reported_at FROM fuel_prices
             WHERE station_id = s.id AND fuel_type = $4
             ORDER BY reported_at DESC NULLS LAST LIMIT 1
           ) fp ON true
-          WHERE s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)
-            AND ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)
+          WHERE s.geom && ST_Expand(r.g::geometry, $2)
+            AND ST_DWithin(s.geom::geography, r.g::geography, $3)
           ORDER BY route_fraction
+          LIMIT ${MAX_RESULTS}
           `,
           routeWkt,
           degPad,
@@ -132,10 +139,9 @@ export async function POST(request: NextRequest) {
           fuel,
         );
 
-    if (allRows.length > MAX_RESULTS) {
-      console.warn(`[route-stations] result truncated at ${MAX_RESULTS} (had ${allRows.length})`);
+    if (rows.length === MAX_RESULTS) {
+      console.warn(`[route-stations] result hit LIMIT ${MAX_RESULTS} (may be truncated)`);
     }
-    const rows = allRows.slice(0, MAX_RESULTS);
 
     const features: StationGeoJSON[] = rows.map((row) => ({
       type: "Feature",

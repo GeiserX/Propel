@@ -231,33 +231,48 @@ describe("route-detour API", () => {
     expect(Number(blocked.headers["Retry-After"])).toBeGreaterThan(0);
   });
 
-  it("caps stations by even spread when more than MAX_DETOUR_STATIONS are sent", async () => {
-    const { getRouteDuration } = await import("@/lib/valhalla");
-    vi.mocked(getRouteDuration).mockResolvedValue(4000);
-
-    // Build 300 stations; schema .max(150) would normally 400, but we verify the
-    // server-side cap independently by pointing the env override high enough to
-    // accept them through Zod is not possible (schema is fixed at 150). Instead
-    // we send exactly 150 (the schema max) and assert all are processed, proving
-    // the cap does not drop entries when count == cap.
-    const stations = Array.from({ length: 150 }, (_, i) => ({
+  it("caps stations by even spread (300 → 150), preserving order and endpoints", async () => {
+    const { capByEvenSpread } = await import("./route");
+    type Station = { id: string; lon: number; lat: number };
+    const input: Station[] = Array.from({ length: 300 }, (_, i) => ({
       id: `s${i}`,
       lon: -3.5 + i * 0.001,
       lat: 40.3,
     }));
 
-    const { POST } = await import("./route");
-    const response = (await POST(makeRequest({
-      stations,
-      origin: [-3.7, 40.4],
-      destination: [-0.37, 39.47],
-      routeDuration: 3600,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }) as any)) as any;
+    const result = capByEvenSpread(input, 150);
 
-    const text = await response.text();
-    const lines = text.trim().split("\n").filter(Boolean);
-    expect(lines.length).toBe(150);
+    // Exactly cap entries.
+    expect(result).toHaveLength(150);
+
+    // Source indices (derived from id) are strictly ascending — order preserved.
+    const indices = result.map((s) => Number(s.id.slice(1)));
+    for (let i = 1; i < indices.length; i++) {
+      expect(indices[i]).toBeGreaterThan(indices[i - 1]);
+    }
+
+    // First element of the input is always included (i=0 → floor(0)=0).
+    expect(result[0].id).toBe("s0");
+    // Last selected index is the highest, drawn from near the end of the array.
+    expect(indices[indices.length - 1]).toBeGreaterThanOrEqual(298);
+
+    // Deterministic: same input yields identical output.
+    const again = capByEvenSpread(input, 150);
+    expect(again.map((s) => s.id)).toEqual(result.map((s) => s.id));
+  });
+
+  it("returns the input unchanged when length <= cap (no-op)", async () => {
+    const { capByEvenSpread } = await import("./route");
+    type Station = { id: string; lon: number; lat: number };
+    const input: Station[] = Array.from({ length: 150 }, (_, i) => ({
+      id: `s${i}`,
+      lon: -3.5 + i * 0.001,
+      lat: 40.3,
+    }));
+
+    const result = capByEvenSpread(input, 150);
+    expect(result).toBe(input);
+    expect(result).toHaveLength(150);
   });
 
   it("rejects more than 150 stations at the schema boundary (400)", async () => {

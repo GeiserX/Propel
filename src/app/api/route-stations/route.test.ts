@@ -101,12 +101,17 @@ describe("route-stations API", () => {
     // Exactly ONE query — no segment-split, no separate positioning query.
     expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(1);
     const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
-    expect(sql).toContain("ST_GeomFromText($1, 4326)");
-    expect(sql).toContain("s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)");
-    expect(sql).toContain("ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)");
-    expect(sql).toContain("ST_LineLocatePoint(ST_GeomFromText($1, 4326)::geometry, s.geom)::float AS route_fraction");
+    // WKT is parsed once in a CTE (route.g), then referenced as r.g everywhere.
+    expect(sql).toContain("WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)");
+    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $3)");
+    expect(sql).toContain("ST_LineLocatePoint(r.g::geometry, s.geom)::float AS route_fraction");
     expect(sql).toContain("ORDER BY route_fraction");
+    expect(sql).toContain("LIMIT 5000");
     expect(sql).toContain("JOIN LATERAL");
+    // The WKT must be parsed exactly once — no leftover inline ST_GeomFromText.
+    expect(sql).not.toContain("ST_GeomFromText($1, 4326)::geometry");
+    expect(sql).not.toContain("ST_GeomFromText($1, 4326)::geography");
   });
 
   it("queries EV stations without price join", async () => {
@@ -128,10 +133,12 @@ describe("route-stations API", () => {
 
     expect(vi.mocked(prisma.$queryRawUnsafe)).toHaveBeenCalledTimes(1);
     const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
-    // EV branch: type filter, same spatial WHERE, no price JOIN LATERAL.
+    // EV branch: type filter, same CTE-based spatial WHERE, no price JOIN LATERAL.
+    expect(sql).toContain("WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)");
     expect(sql).toContain("s.station_type IN ('ev_charger', 'both')");
-    expect(sql).toContain("s.geom && ST_Expand(ST_GeomFromText($1, 4326)::geometry, $2)");
-    expect(sql).toContain("ST_DWithin(s.geom::geography, ST_GeomFromText($1, 4326)::geography, $3)");
+    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $3)");
+    expect(sql).toContain("LIMIT 5000");
     expect(sql).not.toContain("JOIN LATERAL");
   });
 
