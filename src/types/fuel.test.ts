@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FUEL_TYPES, FUEL_TYPE_MAP, FUEL_CATEGORIES } from "./fuel";
+import { FUEL_TYPES, FUEL_TYPE_MAP, FUEL_TYPE_CODES, FUEL_CATEGORIES } from "./fuel";
 
 describe("FUEL_TYPES", () => {
   it("contains expected fuel types", () => {
@@ -36,6 +36,13 @@ describe("FUEL_TYPE_MAP", () => {
 
   it("returns undefined for unknown codes", () => {
     expect(FUEL_TYPE_MAP.get("UNKNOWN" as any)).toBeUndefined();
+  });
+
+  it("has exactly one entry for every canonical fuel type code", () => {
+    for (const code of FUEL_TYPE_CODES) {
+      expect(FUEL_TYPE_MAP.get(code), `code "${code}" missing from FUEL_TYPES`).toBeDefined();
+    }
+    expect(FUEL_TYPES).toHaveLength(FUEL_TYPE_CODES.length);
   });
 });
 

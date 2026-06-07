@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   tag:
-    name: Bump patch version
+    name: Bump version
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout code
@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Get latest tag and bump patch
+      - name: Get latest tag and bump version
         id: bump
         run: |
           LATEST=$(git tag -l "v*" --sort=-version:refname | head -1)
@@ -46,8 +46,25 @@ jobs:
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
           MINOR=$(echo "$VERSION" | cut -d. -f2)
           PATCH=$(echo "$VERSION" | cut -d. -f3)
-          NEW_PATCH=$((PATCH + 1))
-          echo "new_tag=v${MAJOR}.${MINOR}.${NEW_PATCH}" >> $GITHUB_OUTPUT
+          # Determine bump type from conventional commits in ${LATEST}..HEAD:
+          #   - breaking change (BREAKING CHANGE in body, or "!" before the colon
+          #     e.g. feat!: / fix!:) -> bump MAJOR, reset minor+patch to 0
+          #   - feat: commit                                  -> bump MINOR, reset patch to 0
+          #   - anything else (fix:, chore:, etc.)            -> bump PATCH
+          # The previous "[skip ci]" chore bump commit is at/before LATEST, so
+          # scanning ${LATEST}..HEAD correctly excludes it from feat detection.
+          COMMITS=$(git log --format=%B "${LATEST}..HEAD")
+          if echo "$COMMITS" | grep -qE '(^|[[:space:]])BREAKING CHANGE|^[a-zA-Z]+(\([^)]*\))?!:'; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif echo "$COMMITS" | grep -qE '^feat'; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+          echo "new_tag=v${MAJOR}.${MINOR}.${PATCH}" >> $GITHUB_OUTPUT
 
       - name: Sync package.json version and create tag
         run: |

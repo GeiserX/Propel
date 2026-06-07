@@ -7,10 +7,19 @@ import type { StationsGeoJSONCollection, StationGeoJSON } from "@/types/station"
 
 const MAX_COORDINATES = 2000;
 const MAX_RESULTS = 5000;
-// 1 degree of latitude ≈ 111.32 km. Pad the bbox by the corridor distance
-// converted to degrees, with 20% slack for longitude convergence at high
-// latitudes, so the && bbox prefilter never clips a station ST_DWithin keeps.
+// 1 degree of latitude ≈ 111.32 km everywhere, but 1 degree of longitude only
+// spans ~111.32·cos(lat) km — it shrinks toward the poles. So the bbox must be
+// padded SEPARATELY on each axis (ST_Expand's 2-arg dx/dy form): the latitude
+// pad (dy) is corridorKm/111.32, while the longitude pad (dx) is divided by
+// cos(maxAbsLat) to widen it where meridians converge. Without this correction a
+// uniform pad covers only ~cos(lat) of the intended km in longitude (e.g. ~50%
+// at 60°N — Norway/Finland), so the && bbox prefilter would clip stations that
+// ST_DWithin keeps. Over-padding longitude is harmless (geography ST_DWithin is
+// the exact filter); under-padding is the bug we fix. 20% slack on dy for safety.
 const KM_PER_DEGREE = 111.32;
+// Clamp maxAbsLat so cos() can't approach 0 and blow up dx. The dataset is
+// European/mid-latitude, so 85° is a safe ceiling well above any real route.
+const MAX_ABS_LAT_DEG = 85;
 
 // Per-IP rate limit for the corridor endpoint (single Node instance).
 const RATE_LIMIT = 30;
@@ -52,7 +61,7 @@ export async function POST(request: NextRequest) {
   if (!r.ok) {
     return NextResponse.json(
       { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(Math.ceil((r.resetAt - Date.now()) / 1000)) } },
+      { status: 429, headers: { "Retry-After": String(Math.max(1, Math.ceil((r.resetAt - Date.now()) / 1000))) } },
     );
   }
 
@@ -75,8 +84,15 @@ export async function POST(request: NextRequest) {
 
   const coords = geometry.coordinates;
   const corridorMeters = corridorKm * 1000;
-  // Degrees to pad the bbox prefilter (20% slack — see KM_PER_DEGREE comment).
-  const degPad = (corridorKm / KM_PER_DEGREE) * 1.2;
+  // Latitude pad (degrees), 20% slack — see KM_PER_DEGREE comment.
+  const padLatDeg = (corridorKm / KM_PER_DEGREE) * 1.2;
+  // Longitude pad (degrees): widen by 1/cos(lat) where meridians converge. Use
+  // the route's max abs latitude (clamped to MAX_ABS_LAT_DEG) so cos can't → 0.
+  const maxAbsLat = Math.min(
+    MAX_ABS_LAT_DEG,
+    coords.reduce((max, [, lat]) => Math.max(max, Math.abs(lat)), 0),
+  );
+  const padLonDeg = padLatDeg / Math.cos((maxAbsLat * Math.PI) / 180);
   const isEV = fuel === "EV";
 
   // Build the route WKT once and bind it as $1. A CTE parses the WKT a single
@@ -102,13 +118,14 @@ export async function POST(request: NextRequest) {
             ST_Distance(s.geom::geography, r.g::geography)::float AS distance_m
           FROM stations s, route r
           WHERE s.station_type IN ('ev_charger', 'both')
-            AND s.geom && ST_Expand(r.g::geometry, $2)
-            AND ST_DWithin(s.geom::geography, r.g::geography, $3)
+            AND s.geom && ST_Expand(r.g::geometry, $2, $3)
+            AND ST_DWithin(s.geom::geography, r.g::geography, $4)
           ORDER BY route_fraction
           LIMIT ${MAX_RESULTS}
           `,
           routeWkt,
-          degPad,
+          padLonDeg,
+          padLatDeg,
           corridorMeters,
         )
       : await prisma.$queryRawUnsafe<StationRow[]>(
@@ -125,16 +142,17 @@ export async function POST(request: NextRequest) {
           FROM route r, stations s
           JOIN LATERAL (
             SELECT price, currency, reported_at FROM fuel_prices
-            WHERE station_id = s.id AND fuel_type = $4
+            WHERE station_id = s.id AND fuel_type = $5
             ORDER BY reported_at DESC NULLS LAST LIMIT 1
           ) fp ON true
-          WHERE s.geom && ST_Expand(r.g::geometry, $2)
-            AND ST_DWithin(s.geom::geography, r.g::geography, $3)
+          WHERE s.geom && ST_Expand(r.g::geometry, $2, $3)
+            AND ST_DWithin(s.geom::geography, r.g::geography, $4)
           ORDER BY route_fraction
           LIMIT ${MAX_RESULTS}
           `,
           routeWkt,
-          degPad,
+          padLonDeg,
+          padLatDeg,
           corridorMeters,
           fuel,
         );

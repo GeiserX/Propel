@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -273,6 +273,102 @@ describe("route-detour API", () => {
     const result = capByEvenSpread(input, 150);
     expect(result).toBe(input);
     expect(result).toHaveLength(150);
+  });
+
+  it("capByEvenSpread returns input unchanged for a non-positive/non-finite cap", async () => {
+    const { capByEvenSpread } = await import("./route");
+    type Station = { id: string; lon: number; lat: number };
+    const input: Station[] = Array.from({ length: 200 }, (_, i) => ({
+      id: `s${i}`,
+      lon: -3.5 + i * 0.001,
+      lat: 40.3,
+    }));
+
+    // A bad cap must never drop all stations — return the input unchanged.
+    expect(capByEvenSpread(input, 0)).toBe(input);
+    expect(capByEvenSpread(input, -5)).toBe(input);
+    expect(capByEvenSpread(input, NaN)).toBe(input);
+    expect(capByEvenSpread(input, Infinity)).toBe(input);
+  });
+
+  describe("PUMPERLY_MAX_DETOUR_STATIONS env parsing", () => {
+    const ORIGINAL = process.env.PUMPERLY_MAX_DETOUR_STATIONS;
+    afterEach(() => {
+      if (ORIGINAL === undefined) delete process.env.PUMPERLY_MAX_DETOUR_STATIONS;
+      else process.env.PUMPERLY_MAX_DETOUR_STATIONS = ORIGINAL;
+    });
+
+    it("uses 150 when unset", async () => {
+      delete process.env.PUMPERLY_MAX_DETOUR_STATIONS;
+      const { parsePositiveInt } = await import("./route");
+      expect(parsePositiveInt(process.env.PUMPERLY_MAX_DETOUR_STATIONS, 150)).toBe(150);
+    });
+
+    it("falls back to 150 for non-numeric/empty/zero/negative values", async () => {
+      const { parsePositiveInt } = await import("./route");
+      for (const bad of ["abc", "", "0", "-5", "NaN", "  "]) {
+        expect(parsePositiveInt(bad, 150)).toBe(150);
+      }
+    });
+
+    it("uses the configured value when set to a valid positive integer", async () => {
+      const { parsePositiveInt } = await import("./route");
+      expect(parsePositiveInt("50", 150)).toBe(50);
+      // Fractional input is floored to a positive integer.
+      expect(parsePositiveInt("50.9", 150)).toBe(50);
+    });
+
+    it("the module-level cap honors a valid env value (set to 50)", async () => {
+      process.env.PUMPERLY_MAX_DETOUR_STATIONS = "50";
+      vi.resetModules();
+      const { getRouteDuration } = await import("@/lib/valhalla");
+      vi.mocked(getRouteDuration).mockResolvedValue(4000);
+
+      const { POST } = await import("./route");
+      const stations = Array.from({ length: 150 }, (_, i) => ({
+        id: `s${i}`,
+        lon: -3.5,
+        lat: 40.3,
+      }));
+      const response = (await POST(makeRequest({
+        stations,
+        origin: [-3.7, 40.4],
+        destination: [-0.37, 39.47],
+        routeDuration: 3600,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)) as any;
+
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter(Boolean);
+      // Cap of 50 reduces the 150 incoming stations to exactly 50 NDJSON lines.
+      expect(lines.length).toBe(50);
+    });
+
+    it("the module-level cap falls back to 150 for a bad env value (set to 'abc')", async () => {
+      process.env.PUMPERLY_MAX_DETOUR_STATIONS = "abc";
+      vi.resetModules();
+      const { getRouteDuration } = await import("@/lib/valhalla");
+      vi.mocked(getRouteDuration).mockResolvedValue(4000);
+
+      const { POST } = await import("./route");
+      const stations = Array.from({ length: 150 }, (_, i) => ({
+        id: `s${i}`,
+        lon: -3.5,
+        lat: 40.3,
+      }));
+      const response = (await POST(makeRequest({
+        stations,
+        origin: [-3.7, 40.4],
+        destination: [-0.37, 39.47],
+        routeDuration: 3600,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)) as any;
+
+      const text = await response.text();
+      const lines = text.trim().split("\n").filter(Boolean);
+      // Bad env → fallback 150 → all 150 stations are processed (none dropped).
+      expect(lines.length).toBe(150);
+    });
   });
 
   it("rejects more than 150 stations at the schema boundary (400)", async () => {

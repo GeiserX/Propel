@@ -103,12 +103,16 @@ describe("route-stations API", () => {
     const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
     // WKT is parsed once in a CTE (route.g), then referenced as r.g everywhere.
     expect(sql).toContain("WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)");
-    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2)");
-    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $3)");
+    // 2-arg ST_Expand(dx, dy) — longitude/latitude padded separately so the
+    // bbox prefilter doesn't clip valid stations at high latitudes.
+    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2, $3)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $4)");
     expect(sql).toContain("ST_LineLocatePoint(r.g::geometry, s.geom)::float AS route_fraction");
     expect(sql).toContain("ORDER BY route_fraction");
     expect(sql).toContain("LIMIT 5000");
     expect(sql).toContain("JOIN LATERAL");
+    // Fuel branch binds: WKT=$1, dx=$2, dy=$3, meters=$4, fuel=$5.
+    expect(sql).toContain("fuel_type = $5");
     // The WKT must be parsed exactly once — no leftover inline ST_GeomFromText.
     expect(sql).not.toContain("ST_GeomFromText($1, 4326)::geometry");
     expect(sql).not.toContain("ST_GeomFromText($1, 4326)::geography");
@@ -136,10 +140,56 @@ describe("route-stations API", () => {
     // EV branch: type filter, same CTE-based spatial WHERE, no price JOIN LATERAL.
     expect(sql).toContain("WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)");
     expect(sql).toContain("s.station_type IN ('ev_charger', 'both')");
-    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2)");
-    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $3)");
+    // EV branch binds: WKT=$1, dx=$2, dy=$3, meters=$4 (no fuel param).
+    expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2, $3)");
+    expect(sql).toContain("ST_DWithin(s.geom::geography, r.g::geography, $4)");
     expect(sql).toContain("LIMIT 5000");
     expect(sql).not.toContain("JOIN LATERAL");
+  });
+
+  it("pads longitude wider than latitude for a high-latitude route (cos-lat correction)", async () => {
+    const { prisma } = await import("@/lib/db");
+    vi.mocked(prisma.$queryRawUnsafe).mockResolvedValueOnce([mockStationRow]);
+
+    // A route around 60°N (Norway/Finland): cos(60°) ≈ 0.5, so the longitude
+    // pad (dx) must be ~2× the latitude pad (dy) or the bbox clips valid stations.
+    const corridorKm = 5;
+    const highLatBody = {
+      ...validBody,
+      corridorKm,
+      geometry: {
+        type: "LineString" as const,
+        coordinates: [[10.7, 59.9], [10.0, 60.4], [11.0, 60.0]],
+      },
+    };
+
+    const { POST } = await import("./route");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = (await POST(makeRequest(highLatBody) as any)) as any;
+    expect(response.status).toBe(200);
+
+    const call = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    const sql = call[0] as string;
+    // 3-arg ST_Expand(dx, dy) form must be present.
+    expect(sql).toContain("ST_Expand(r.g::geometry, $2, $3)");
+
+    // Bound params: $1=WKT, $2=dx (lon pad), $3=dy (lat pad), $4=meters, $5=fuel.
+    const dx = call[2] as number;
+    const dy = call[3] as number;
+    const meters = call[4] as number;
+
+    const KM_PER_DEGREE = 111.32;
+    const expectedDy = (corridorKm / KM_PER_DEGREE) * 1.2;
+    const maxAbsLat = 60.4; // max abs latitude across the route coords
+    const expectedDx = expectedDy / Math.cos((maxAbsLat * Math.PI) / 180);
+
+    expect(dy).toBeCloseTo(expectedDy, 10);
+    expect(dx).toBeCloseTo(expectedDx, 10);
+    // The whole point of the fix: longitude pad is wider than latitude pad.
+    expect(dx).toBeGreaterThan(dy);
+    // At ~60°N the ratio is ~1/cos(60°) ≈ 2.
+    expect(dx / dy).toBeCloseTo(1 / Math.cos((maxAbsLat * Math.PI) / 180), 10);
+    expect(meters).toBe(corridorKm * 1000);
   });
 
   it("issues a single query for a >200-coordinate LineString (no segment-split)", async () => {

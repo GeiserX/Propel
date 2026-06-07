@@ -40,6 +40,7 @@ export const FUEL_TYPES: FuelTypeInfo[] = [
   // Diesel
   { code: "B7", label: "Diesel (A)", category: "diesel" },
   { code: "B7_PREMIUM", label: "Diesel Premium", category: "diesel" },
+  { code: "B10", label: "Diesel B10", category: "diesel" },
   { code: "B_AGRICULTURAL", label: "Diesel B (Agrícola)", category: "diesel" },
   { code: "HVO", label: "Diesel Renovable (HVO)", category: "diesel" },
   // Gasoline

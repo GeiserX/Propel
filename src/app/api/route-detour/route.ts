@@ -8,13 +8,23 @@ import { rateLimit, clientIp } from "@/lib/rate-limit";
 // concurrency is min(CONCURRENCY, VALHALLA_MAX_INFLIGHT) across all requests.
 const CONCURRENCY = 8;
 
+/**
+ * Parse an env-supplied integer defensively. A non-numeric, empty, zero,
+ * negative, or non-finite value falls back to `fallback` so a misconfigured
+ * env var can never produce a cap that silently drops all stations.
+ */
+export function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
+}
+
 // Server-side cap on the number of stations a single detour request may ask us
 // to route. The detour endpoint's station objects carry only {id, lon, lat,
 // before?, after?, onRouteSec?} — no price — so we cannot prioritise by price
 // here. The client sends stations already sorted by routeFraction, so we cap by
 // EVEN SPREAD across the incoming array: take every k-th element to keep N
 // evenly distributed along the route (deterministic, preserves order).
-const MAX_DETOUR_STATIONS = Number(process.env.PUMPERLY_MAX_DETOUR_STATIONS ?? 150);
+const MAX_DETOUR_STATIONS = parsePositiveInt(process.env.PUMPERLY_MAX_DETOUR_STATIONS, 150);
 
 // TODO(perf): replace per-station before→station→after /route calls with Valhalla /sources_to_targets matrix calls (bucket by ≤400km span, ≤2500 pairs) to cut Valhalla load ~10-100x. Deferred.
 
@@ -51,6 +61,9 @@ export type Station = z.infer<typeof stationSchema>;
  * coverage spread along the route rather than clustered. Order is preserved.
  */
 export function capByEvenSpread(stations: Station[], cap: number): Station[] {
+  // Belt-and-suspenders: a bad cap (<1, NaN, non-finite) must never cause us to
+  // return [] for a non-empty input. Return the input unchanged in that case.
+  if (!Number.isFinite(cap) || cap < 1) return stations;
   if (stations.length <= cap) return stations;
   const step = stations.length / cap;
   const selected: Station[] = [];

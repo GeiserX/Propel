@@ -29,4 +29,10 @@ describe("formatDuration", () => {
     expect(formatDuration(5400)).toBe("1 h 30 min");
     expect(formatDuration(7260)).toBe("2 h 1 min");
   });
+
+  it("rolls minutes into hours instead of showing 60", () => {
+    expect(formatDuration(59)).toBe("1 min");
+    expect(formatDuration(3599)).toBe("1 h 0 min");
+    expect(formatDuration(7199)).toBe("2 h 0 min");
+  });
 });

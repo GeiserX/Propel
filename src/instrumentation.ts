@@ -170,6 +170,11 @@ export async function register() {
     EV_LT: () => new OCMScraper("LT"),
     EV_BA: () => new OCMScraper("BA"),
     EV_MK: () => new OCMScraper("MK"),
+    EV_TR: () => new OCMScraper("TR"),
+    EV_MD: () => new OCMScraper("MD"),
+    EV_AU: () => new OCMScraper("AU"),
+    EV_AR: () => new OCMScraper("AR"),
+    EV_MX: () => new OCMScraper("MX"),
   };
 
   // Determine which countries to scrape

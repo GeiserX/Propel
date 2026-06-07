@@ -4,8 +4,9 @@ export function formatDistance(km: number): string {
 }
 
 export function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
+  const totalMin = Math.round(seconds / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
   if (h === 0) return `${m} min`;
   return `${h} h ${m} min`;
 }
