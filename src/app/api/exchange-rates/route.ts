@@ -11,13 +11,13 @@ async function fetchRates(): Promise<{ rates: Record<string, number>; date: stri
   if (!res.ok) throw new Error(`ECB returned ${res.status}`);
   const xml = await res.text();
 
-  // Parse date: <Cube time="2026-03-18">
-  const dateMatch = xml.match(/time='(\d{4}-\d{2}-\d{2})'/);
+  // Parse date: <Cube time="2026-03-18"> (ECB may emit single OR double quotes)
+  const dateMatch = xml.match(/time=['"](\d{4}-\d{2}-\d{2})['"]/);
   const date = dateMatch?.[1] ?? new Date().toISOString().slice(0, 10);
 
-  // Parse rates: <Cube currency="USD" rate="1.0934"/>
+  // Parse rates: <Cube currency="USD" rate="1.0934"/> (single OR double quotes)
   const rates: Record<string, number> = { EUR: 1 };
-  const rateRegex = /currency='([A-Z]+)'\s+rate='([\d.]+)'/g;
+  const rateRegex = /currency=['"]([A-Z]+)['"]\s+rate=['"]([\d.]+)['"]/g;
   let match;
   while ((match = rateRegex.exec(xml)) !== null) {
     rates[match[1]] = parseFloat(match[2]);

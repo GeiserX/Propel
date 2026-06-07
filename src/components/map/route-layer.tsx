@@ -40,7 +40,13 @@ export function RouteLayer({ routes, primaryIndex, onSelectRoute, beforeLayerId 
     for (let i = 0; i < routes.length; i++) {
       stops.push(i, ROUTE_COLORS[i % ROUTE_COLORS.length]);
     }
-    if (stops.length === 0) return "#9ca3af" as unknown as ExpressionSpecification;
+    // Wrap the constant fallback in `to-color` so it is array-shaped and casts
+    // without `unknown`.
+    if (stops.length === 0) return ["to-color", "#9ca3af"] as ExpressionSpecification;
+    // The spread `stops` array (string|number)[] cannot be matched against
+    // @types/maplibre-gl's typed-tuple ExpressionSpecification without `unknown`
+    // (a known ergonomics gap). Keep a single double-cast here; the runtime
+    // shape is a valid `match` expression.
     return ["match", ["get", "routeIndex"], ...stops, "#9ca3af"] as unknown as ExpressionSpecification;
   }, [routes.length]);
 

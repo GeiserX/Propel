@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:17-3.4
     container_name: pumperly-db
     restart: unless-stopped
     ports:

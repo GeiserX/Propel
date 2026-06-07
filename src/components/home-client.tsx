@@ -4,18 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FuelType, StationGeoJSON, StationsGeoJSONCollection } from "@/types/station";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { Route } from "@/components/map/route-layer";
+import type { RouteState, DetourBasis } from "@/types/route";
 import { I18nProvider, type Locale } from "@/lib/i18n";
 import { CurrencyProvider } from "@/lib/currency";
 import { ThemeProvider } from "@/lib/theme";
 import { Navbar } from "@/components/nav/navbar";
 import { MapView } from "@/components/map/map-view";
 import { SearchPanel } from "@/components/search/search-panel";
-
-// Debounce interval (ms) for batching per-station stream updates into
-// a single React state update, avoiding excessive re-renders.
-const detourFlushMs = 150;
-// Must match the .max() on the detour API schema
-const detourChunkSize = 500;
+import { useDetourStream } from "@/lib/use-detour-stream";
 
 interface Props {
   defaultFuel: string;
@@ -23,11 +19,6 @@ interface Props {
   zoom: number;
   clusterStations: boolean;
   locale?: Locale;
-}
-
-interface RouteState {
-  routes: Route[];
-  primaryIndex: number;
 }
 
 type GeoState = "idle" | "loading" | "active" | "denied";
@@ -51,6 +42,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const selectedStationCoordsRef = useRef<[number, number] | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   const [maxDetour, setMaxDetour] = useState<number | null>(null);
+  const [detourBasis, setDetourBasis] = useState<DetourBasis>("selected");
   const [stationsLoading, setStationsLoading] = useState(false);
   const [stationsError, setStationsError] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -285,158 +277,10 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   }, []);
 
   // Streaming Valhalla-based detour calculation — results appear per-station
-  const detourAbortRef = useRef<AbortController | null>(null);
-  const [detourMap, setDetourMap] = useState<Record<string, number>>({});
-  const [detoursLoading, setDetoursLoading] = useState(false);
-
-  // Stable key based on station IDs — only changes when actual stations change,
-  // not when currency conversion updates the collection reference.
-  const primaryStationsRef = useRef(primaryStations);
-  primaryStationsRef.current = primaryStations;
-  const stationKey = useMemo(() => {
-    const ids = primaryStations.features
-      .filter((f) => f.properties.routeFraction != null)
-      .map((f) => f.properties.id);
-    ids.sort();
-    return ids.join(",");
-  }, [primaryStations]);
-
-  useEffect(() => {
-    if (detourAbortRef.current) detourAbortRef.current.abort();
-    setDetourMap({});
-
-    const stations = primaryStationsRef.current;
-    const route = routeState?.routes[routeState.primaryIndex];
-    if (!route || stations.features.length === 0) {
-      setDetoursLoading(false);
-      return;
-    }
-
-    const eligible = stations.features
-      .filter((f) => f.properties.routeFraction != null)
-      .sort((a, b) => (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0));
-
-    if (eligible.length === 0) {
-      setDetoursLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    detourAbortRef.current = controller;
-    setDetoursLoading(true);
-
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    let pending: Record<string, number> = {};
-
-    function flush() {
-      flushTimer = null;
-      if (controller.signal.aborted) return;
-      const batch = pending;
-      pending = {};
-      setDetourMap((prev) => ({ ...prev, ...batch }));
-    }
-
-    function scheduleFlush() {
-      if (flushTimer == null) {
-        flushTimer = setTimeout(flush, detourFlushMs);
-      }
-    }
-
-    // Backfill unseen stations as -1 so they don't bypass detour filter
-    function backfillUnseen(ids: Set<string>, seen: Set<string>) {
-      if (controller.signal.aborted) return;
-      const failed: Record<string, number> = {};
-      for (const id of ids) { if (!seen.has(id)) failed[id] = -1; }
-      if (Object.keys(failed).length > 0) setDetourMap((prev) => ({ ...prev, ...failed }));
-    }
-
-    (async () => {
-      const coords = route.geometry.coordinates as [number, number][];
-      const eligibleIds = new Set(eligible.map((f) => f.properties.id));
-      const seen = new Set<string>();
-
-      // Chunk eligible stations so each request stays within the API's .max(500)
-      for (let offset = 0; offset < eligible.length; offset += detourChunkSize) {
-        if (controller.signal.aborted) return;
-        const chunk = eligible.slice(offset, offset + detourChunkSize);
-
-        try {
-          const res = await fetch("/api/route-detour", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              stations: chunk.map((f) => ({
-                id: f.properties.id,
-                lon: f.geometry.coordinates[0],
-                lat: f.geometry.coordinates[1],
-              })),
-              origin: coords[0],
-              destination: coords[coords.length - 1],
-              routeDuration: route.duration,
-            }),
-            signal: controller.signal,
-          });
-
-          if (!res.ok || !res.body) {
-            // Mark this chunk as failed, continue to next chunk
-            if (!controller.signal.aborted) {
-              setDetourMap((prev) => {
-                const next = { ...prev };
-                for (const f of chunk) { next[f.properties.id] = -1; seen.add(f.properties.id); }
-                return next;
-              });
-            }
-            continue;
-          }
-
-          // Read NDJSON stream
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop()!;
-
-            for (const line of lines) {
-              if (!line) continue;
-              try {
-                const { id, detourMin } = JSON.parse(line);
-                pending[id] = detourMin;
-                seen.add(id);
-              } catch { /* skip malformed line */ }
-            }
-
-            if (Object.keys(pending).length > 0) scheduleFlush();
-          }
-
-          // Flush remaining from this chunk
-          if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
-          if (Object.keys(pending).length > 0) flush();
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") return;
-          // Mark unseen stations in this chunk as failed, keep flushed successes
-          backfillUnseen(new Set(chunk.map((f) => f.properties.id)), seen);
-        }
-      }
-
-      // Backfill any stations never seen across all chunks (skipped lines, etc.)
-      backfillUnseen(eligibleIds, seen);
-      if (!controller.signal.aborted) setDetoursLoading(false);
-    })();
-
-    return () => {
-      controller.abort();
-      if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null; }
-    };
-  }, [stationKey, routeState]);
+  const { detourMap, detoursLoading } = useDetourStream({ primaryStations, routeState, detourBasis });
 
   // Enrich primary stations with real detour values
-  const enrichedStations: StationsGeoJSONCollection = (() => {
+  const enrichedStations: StationsGeoJSONCollection = useMemo(() => {
     if (Object.keys(detourMap).length === 0) return primaryStations;
     return {
       type: "FeatureCollection",
@@ -446,7 +290,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
         return { ...f, properties: { ...f.properties, detourMin: real } };
       }),
     };
-  })();
+  }, [primaryStations, detourMap]);
 
   return (
     <ThemeProvider>
@@ -492,7 +336,6 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onClearStationLeg={handleClearStationLeg}
           onSelectRoute={handleSelectRoute}
           selectedStationId={selectedStationId}
-          onSelectStation={handleSelectStation}
           routeError={routeError}
           routes={routeState?.routes ?? null}
           displayRoutes={stationLegRoutes}
@@ -505,6 +348,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           maxPrice={maxPrice}
           maxDetour={maxDetour}
           onMaxDetourChange={setMaxDetour}
+          detourBasis={detourBasis}
+          onDetourBasisChange={setDetourBasis}
           corridorKm={corridorKm}
           onCorridorKmChange={setCorridorKm}
         />

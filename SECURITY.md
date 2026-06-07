@@ -30,7 +30,7 @@ You can expect an initial response within 72 hours. Critical vulnerabilities aff
 | Frontend | Next.js (React) | Server-rendered, CSP headers via Cloudflare |
 | API | Next.js Route Handlers | Server-side only, no direct DB exposure |
 | Database | PostgreSQL + PostGIS | Internal network only, not internet-exposed |
-| Geocoding | Photon (Elasticsearch) | Internal network only |
+| Geocoding | Photon (OpenSearch) | Internal network only |
 | Routing | Valhalla | Internal network only |
 | Reverse Proxy | Caddy + Cloudflare | TLS termination, DDoS protection |
 | Container Runtime | Docker (Portainer) | Non-root containers, read-only where possible |

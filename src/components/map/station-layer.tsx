@@ -89,7 +89,9 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
   // Cluster color: use avgPrice (aggregated by clusterProperties) with same scale
   // Guard against countPrice=0 to avoid division-by-zero → null
   const clusterColor = useMemo((): ExpressionSpecification => {
-    if (!colorStops) return PRICE_COLORS[3] as unknown as ExpressionSpecification;
+    // Wrap the constant fallback color in a `to-color` expression so it is
+    // array-shaped and casts to ExpressionSpecification without `unknown`.
+    if (!colorStops) return ["to-color", PRICE_COLORS[3]] as ExpressionSpecification;
     return [
       "case",
       [">", ["get", "countPrice"], 0],
@@ -156,7 +158,12 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
     setSelectedStationId(null);
   }, [setSelectedStationId]);
 
-  const pointPaint = {
+  // Memoize the point paint object so a stable reference is passed to <Layer>.
+  // Only `circle-color` varies between renders (the radius interpolation and
+  // stroke values are render-invariant constants), so `circleColor` is the sole
+  // dependency. This avoids forcing MapLibre paint reconciliation on every
+  // re-render (e.g. ~125 re-renders during detour streaming).
+  const pointPaint = useMemo(() => ({
     "circle-color": circleColor,
     "circle-radius": [
       "interpolate",
@@ -168,7 +175,7 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
     ] as ExpressionSpecification,
     "circle-stroke-width": 1.5,
     "circle-stroke-color": "#ffffff",
-  };
+  }), [circleColor]);
 
   // Cluster properties: accumulate sum and count of prices for average calculation
   const clusterProperties = useMemo(() => ({

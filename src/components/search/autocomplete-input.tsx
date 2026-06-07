@@ -49,6 +49,9 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const internalInputRef = useRef<HTMLInputElement>(null);
+  // Monotonic request id — guards against a stale fetch resolving after the
+  // user has already picked a result and re-opening/reshuffling the list.
+  const requestIdRef = useRef(0);
 
   const doGeocode = useCallback(
     async (query: string): Promise<PhotonResult[]> => {
@@ -88,7 +91,10 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
         return;
       }
 
+      const reqId = ++requestIdRef.current;
       const data = await doGeocode(query);
+      // Discard if a newer request (or a selection) superseded this one
+      if (reqId !== requestIdRef.current) return;
       setResults(data);
       setNoResults(data.length === 0);
       setIsOpen(data.length > 0);
@@ -111,6 +117,10 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
 
   const handleSelect = useCallback(
     (result: PhotonResult) => {
+      // Cancel any pending debounced fetch and invalidate in-flight ones so a
+      // late result can't re-open the dropdown after the user has picked.
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+      requestIdRef.current++;
       const label = formatResult(result);
       onChange(label);
       onSelect(result);
@@ -199,7 +209,8 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
           {locationLabel && onLocationSelect && (
             <li
               className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
-              onMouseDown={() => {
+              onMouseDown={(e) => {
+                e.preventDefault();
                 onLocationSelect();
                 setIsFocused(false);
               }}
@@ -217,7 +228,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
               className={`cursor-pointer px-3 py-2 text-sm ${
                 i === activeIndex ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
               }`}
-              onMouseDown={() => handleSelect(r)}
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
               onMouseEnter={() => setActiveIndex(i)}
             >
               <span className="font-medium">{r.name}</span>

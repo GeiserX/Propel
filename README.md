@@ -406,7 +406,6 @@ volumes:
 | `PUMPERLY_ENABLED_COUNTRIES` | Comma-separated ISO codes to enable | All |
 | `PUMPERLY_DEFAULT_FUEL` | Override default fuel type | Per-country |
 | `PUMPERLY_CLUSTER_STATIONS` | Enable map marker clustering | `true` |
-| `PUMPERLY_CORRIDOR_KM` | Route corridor width in km (0.5-50) | `5` |
 | `PUMPERLY_PRICE_MIN` / `PUMPERLY_PRICE_MAX` | Price bounds for scraper validation (EUR/L) | `0.30` / `4.00` |
 | `PUMPERLY_SCRAPE_INTERVAL_HOURS` | Global scrape interval override (hours, 0=disable) | Per-country |
 | `PUMPERLY_EV_ENABLED` | Enable EV charger scraping (`0` to disable) | `1` |
@@ -478,7 +477,7 @@ Open `http://localhost:3000`.
 
 | Layer | Technology |
 |---|---|
-| Frontend | [Next.js](https://nextjs.org) 15, [React](https://react.dev) 19, [MapLibre GL JS](https://maplibre.org), [Tailwind CSS](https://tailwindcss.com) |
+| Frontend | [Next.js](https://nextjs.org) 16, [React](https://react.dev) 19, [MapLibre GL JS](https://maplibre.org), [Tailwind CSS](https://tailwindcss.com) |
 | Backend | Next.js API routes, [Prisma](https://prisma.io) ORM |
 | Database | [PostGIS](https://postgis.net) 17 (PostgreSQL + spatial) |
 | Routing | [Valhalla](https://github.com/valhalla/valhalla) 3.5.1 |

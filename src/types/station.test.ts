@@ -4,7 +4,6 @@ import type {
   FuelType,
   Station,
   FuelPrice,
-  StationWithPrices,
   StationGeoJSON,
   StationsGeoJSONCollection,
 } from "./station";

@@ -49,6 +49,46 @@ export interface RawFuelPrice {
 }
 
 // ---------------------------------------------------------------------------
+// Per-currency price validation bands
+// ---------------------------------------------------------------------------
+// Reject obviously bad prices (placeholders, wrong units) using per-currency
+// plausible per-litre ranges. EUR/GBP/CHF additionally respect the
+// PUMPERLY_PRICE_MIN / PUMPERLY_PRICE_MAX env overrides (see run()).
+
+interface PriceBand {
+  min: number;
+  max: number;
+}
+
+const PRICE_BANDS: Record<string, PriceBand> = {
+  EUR: { min: 0.5, max: 4.0 },
+  GBP: { min: 0.4, max: 3.5 },
+  CHF: { min: 0.5, max: 4.5 },
+  HUF: { min: 200, max: 2000 },
+  RON: { min: 3, max: 30 },
+  RSD: { min: 60, max: 600 },
+  TRY: { min: 10, max: 400 },
+  PLN: { min: 2, max: 20 },
+  CZK: { min: 10, max: 150 },
+  BGN: { min: 1, max: 10 },
+  MKD: { min: 30, max: 300 },
+  BAM: { min: 1, max: 10 },
+  MDL: { min: 10, max: 100 },
+  SEK: { min: 6, max: 60 },
+  NOK: { min: 7, max: 70 },
+  DKK: { min: 6, max: 60 },
+  MXN: { min: 8, max: 100 },
+  ARS: { min: 200, max: 20000 }, // wide: high inflation — review periodically
+  AUD: { min: 0.5, max: 5.0 },
+};
+
+const DEFAULT_BAND: PriceBand = { min: 0.1, max: 100000 };
+
+export function bandFor(currency: string): PriceBand {
+  return PRICE_BANDS[currency] ?? DEFAULT_BAND;
+}
+
+// ---------------------------------------------------------------------------
 // Abstract scraper contract
 // ---------------------------------------------------------------------------
 
@@ -94,12 +134,21 @@ export abstract class BaseScraper {
       const { stations, prices } = await this.fetch();
 
       // ------------------------------------------------------------------
-      // 0a. Reject obviously bad prices (placeholders, wrong units)
-      //     Bounds configurable via PUMPERLY_PRICE_MIN / PUMPERLY_PRICE_MAX
-      //     (applied to EUR/GBP/CHF; other currencies use 10x wider range)
+      // 0a. Reject obviously bad prices (placeholders, wrong units) using
+      //     per-currency plausible per-litre bands (see PRICE_BANDS).
+      //     EUR/GBP/CHF additionally honour the PUMPERLY_PRICE_MIN /
+      //     PUMPERLY_PRICE_MAX env overrides; all other currencies use
+      //     bandFor(currency).
       // ------------------------------------------------------------------
-      const priceMin = parseFloat(process.env.PUMPERLY_PRICE_MIN ?? "0.30");
-      const priceMax = parseFloat(process.env.PUMPERLY_PRICE_MAX ?? "4.00");
+      // Parse a numeric env var, falling back to the default if missing or
+      // malformed (a NaN here would silently disable price validation).
+      const parseEnvNum = (raw: string | undefined, def: number): number => {
+        if (raw == null) return def;
+        const v = parseFloat(raw);
+        return Number.isFinite(v) ? v : def;
+      };
+      const priceMin = parseEnvNum(process.env.PUMPERLY_PRICE_MIN, 0.3);
+      const priceMax = parseEnvNum(process.env.PUMPERLY_PRICE_MAX, 4.0);
       const ALT_FUELS = new Set(["H2", "CNG", "LNG", "ADBLUE"]);
       const badPriceBefore = prices.length;
       const validPrices = prices.filter((p) => {
@@ -107,7 +156,8 @@ export abstract class BaseScraper {
         if (ALT_FUELS.has(p.fuelType)) return p.price >= 0.05 && p.price < 100;
         if (p.currency === "EUR" || p.currency === "GBP" || p.currency === "CHF")
           return p.price >= priceMin && p.price <= priceMax;
-        return p.price >= priceMin && p.price <= priceMax * 1000;
+        const band = bandFor(p.currency);
+        return p.price >= band.min && p.price <= band.max;
       });
       const badPrices = badPriceBefore - validPrices.length;
       if (badPrices > 0) {
@@ -129,9 +179,32 @@ export abstract class BaseScraper {
       );
 
       // ------------------------------------------------------------------
+      // 0c. Empty-fetch guard (CRITICAL).
+      //     An HTTP-200 upstream that returns empty/garbage-but-parseable
+      //     data must NOT wipe a whole country. If there are no stations to
+      //     persist (filteredStations keeps EV chargers even with no prices,
+      //     so genuine EV runs still proceed; a truly empty fetch aborts),
+      //     skip the destructive price-replace and orphan-cleanup entirely.
+      // ------------------------------------------------------------------
+      if (filteredStations.length === 0) {
+        const msg = `Aborted destructive replace: fetch returned 0 stations / ${validPrices.length} valid prices`;
+        errors.push(msg);
+        console.error(`[${this.source}] ${msg}`);
+        return {
+          country: this.country,
+          source: this.source,
+          stationsUpserted,
+          pricesUpserted,
+          durationMs: Date.now() - start,
+          errors,
+        };
+      }
+
+      // ------------------------------------------------------------------
       // 1. Upsert stations in batches
       // ------------------------------------------------------------------
       const STATION_BATCH = 500;
+      let stationBatchFailed = false;
       for (let i = 0; i < filteredStations.length; i += STATION_BATCH) {
         const batch = filteredStations.slice(i, i + STATION_BATCH);
         try {
@@ -139,6 +212,7 @@ export abstract class BaseScraper {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`Station batch ${i}-${i + batch.length}: ${msg}`);
+          stationBatchFailed = true;
         }
       }
 
@@ -200,20 +274,31 @@ export abstract class BaseScraper {
 
       // ------------------------------------------------------------------
       // 3. Clean up orphaned fuel stations (no prices from any source)
+      //    Skipped entirely if any station upsert batch failed — otherwise
+      //    we'd orphan-delete stations whose upsert never landed this run.
       // ------------------------------------------------------------------
-      const cleaned: Array<{ count: bigint }> = await prisma.$queryRawUnsafe(
-        `WITH deleted AS (
-           DELETE FROM stations
-           WHERE country = $1
-             AND station_type = 'fuel'
-             AND id NOT IN (SELECT DISTINCT station_id FROM fuel_prices)
-           RETURNING id
-         ) SELECT count(*) FROM deleted`,
-        this.country,
-      );
-      const cleanedCount = Number(cleaned[0]?.count ?? 0);
-      if (cleanedCount > 0) {
-        console.log(`[${this.source}] Cleaned up ${cleanedCount} stations with no prices`);
+      if (stationBatchFailed) {
+        const msg =
+          "Skipped orphan cleanup: one or more station batches failed (would have deleted unwritten stations)";
+        errors.push(msg);
+        console.error(`[${this.source}] ${msg}`);
+      } else {
+        const cleaned: Array<{ count: bigint }> = await prisma.$queryRawUnsafe(
+          `WITH deleted AS (
+             DELETE FROM stations
+             WHERE country = $1
+               AND station_type = 'fuel'
+               AND NOT EXISTS (
+                 SELECT 1 FROM fuel_prices fp WHERE fp.station_id = stations.id
+               )
+             RETURNING id
+           ) SELECT count(*) FROM deleted`,
+          this.country,
+        );
+        const cleanedCount = Number(cleaned[0]?.count ?? 0);
+        if (cleanedCount > 0) {
+          console.log(`[${this.source}] Cleaned up ${cleanedCount} stations with no prices`);
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

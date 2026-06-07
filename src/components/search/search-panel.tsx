@@ -5,12 +5,14 @@ import type { PhotonResult } from "@/lib/photon";
 import type { Route } from "@/components/map/route-layer";
 import type { StationsGeoJSONCollection } from "@/types/station";
 import { AutocompleteInput, type AutocompleteRef } from "./autocomplete-input";
+import { RouteAlternatives } from "./route-alternatives";
+import { StationResults } from "./station-results";
 import { useI18n } from "@/lib/i18n";
-import { useCurrency, CURRENCIES } from "@/lib/currency";
+import { projectOntoRoute } from "@/lib/route-geometry";
+import { formatDistance, formatDuration } from "@/lib/format";
 
 type Phase = "search" | "destination" | "route";
 
-const ROUTE_COLORS = ["#3b82f6", "#8b5cf6", "#14b8a6", "#ec4899", "#f59e0b"];
 const MAX_WAYPOINTS = 5;
 
 interface SearchPanelProps {
@@ -21,7 +23,6 @@ interface SearchPanelProps {
   onClearStationLeg?: () => void;
   onSelectRoute?: (index: number) => void;
   selectedStationId?: string | null;
-  onSelectStation?: (id: string | null) => void;
   routeError?: string | null;
   routes: Route[] | null;
   displayRoutes?: Route[] | null;
@@ -34,6 +35,8 @@ interface SearchPanelProps {
   maxPrice?: number | null;
   maxDetour?: number | null;
   onMaxDetourChange?: (detour: number | null) => void;
+  detourBasis?: "selected" | "any";
+  onDetourBasisChange?: (basis: "selected" | "any") => void;
   corridorKm?: number;
   onCorridorKmChange?: (km: number) => void;
 }
@@ -60,7 +63,6 @@ export function SearchPanel({
   onClearStationLeg,
   onSelectRoute,
   selectedStationId,
-  onSelectStation,
   routeError,
   routes,
   displayRoutes,
@@ -73,11 +75,12 @@ export function SearchPanel({
   maxPrice,
   maxDetour,
   onMaxDetourChange,
+  detourBasis = "selected",
+  onDetourBasisChange,
   corridorKm = 5,
   onCorridorKmChange,
 }: SearchPanelProps) {
   const { t } = useI18n();
-  const { symbol: currencySymbol, formatPrice } = useCurrency();
   const [phase, setPhase] = useState<Phase>("search");
   const [collapsed, setCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState<"price" | "detour" | "km">("price");
@@ -452,70 +455,81 @@ export function SearchPanel({
   }, [showDest]);
 
   // All corridor stations (price may be null for EV chargers)
-  const allCorridorStations = primaryStations?.features
-    .filter((f) => f.properties.routeFraction != null)
-    ?? [];
+  const allCorridorStations = useMemo(
+    () => primaryStations?.features.filter((f) => f.properties.routeFraction != null) ?? [],
+    [primaryStations],
+  );
 
   // Station list: filtered by price and detour, sorted by user selection.
   // During detour loading, only show stations with known detour values so
   // rows appear progressively as NDJSON results stream in.
-  const stationList = allCorridorStations
-    .filter((f) => {
-      if (detoursLoading && f.properties.detourMin == null) return false;
-      return (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
-        && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour));
-    })
-    .sort((a, b) => {
-      if (sortBy === "price") {
-        const pa = a.properties.price, pb = b.properties.price;
-        if (pa == null && pb == null) return 0;
-        if (pa == null) return 1;
-        if (pb == null) return -1;
-        return pa - pb;
-      }
-      if (sortBy === "detour") {
-        const da = a.properties.detourMin, db = b.properties.detourMin;
-        if (da == null || da < 0) return (db == null || db < 0) ? 0 : 1;
-        if (db == null || db < 0) return -1;
-        return da - db;
-      }
-      return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
-    });
+  const stationList = useMemo(
+    () =>
+      allCorridorStations
+        .filter((f) => {
+          if (detoursLoading && f.properties.detourMin == null) return false;
+          return (maxPrice == null || f.properties.price == null || f.properties.price <= maxPrice)
+            && (maxDetour == null || f.properties.detourMin == null || (f.properties.detourMin >= 0 && f.properties.detourMin <= maxDetour));
+        })
+        .sort((a, b) => {
+          if (sortBy === "price") {
+            const pa = a.properties.price, pb = b.properties.price;
+            if (pa == null && pb == null) return 0;
+            if (pa == null) return 1;
+            if (pb == null) return -1;
+            return pa - pb;
+          }
+          if (sortBy === "detour") {
+            const da = a.properties.detourMin, db = b.properties.detourMin;
+            if (da == null || da < 0) return (db == null || db < 0) ? 0 : 1;
+            if (db == null || db < 0) return -1;
+            return da - db;
+          }
+          return (a.properties.routeFraction ?? 0) - (b.properties.routeFraction ?? 0);
+        }),
+    [allCorridorStations, detoursLoading, maxPrice, maxDetour, sortBy],
+  );
 
-  // Average price for savings comparison (EV chargers have no price)
-  const withPrice = stationList.filter((s) => s.properties.price != null);
-  const avgPrice = withPrice.length > 0
-    ? withPrice.reduce((sum, s) => sum + s.properties.price!, 0) / withPrice.length
-    : null;
+  // Derived badges + avg price. balancedId reads cheapestId/shortestDetourId,
+  // so the whole dependent chain is computed together to keep that data-flow correct.
+  const { avgPrice, cheapestId, shortestDetourId, balancedId } = useMemo(() => {
+    // Average price for savings comparison (EV chargers have no price)
+    const withPrice = stationList.filter((s) => s.properties.price != null);
+    const avg = withPrice.length > 0
+      ? withPrice.reduce((sum, s) => sum + s.properties.price!, 0) / withPrice.length
+      : null;
 
-  // Badges: cheapest, shortest detour, balanced (only when 2+ stations)
-  const cheapestId = withPrice.length > 0
-    ? withPrice.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
-    : null;
-  const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null && s.properties.detourMin >= 0);
-  const shortestDetourId = withKnownDetour.length > 0
-    ? withKnownDetour.reduce((best, s) => (s.properties.detourMin! < best.properties.detourMin! ? s : best)).properties.id
-    : null;
-  // Balanced: normalize price (0-1) and detour (0-1) — requires both values
-  const withPriceAndDetour = stationList.filter((s) => s.properties.price != null && s.properties.detourMin != null && s.properties.detourMin >= 0);
-  const balancedId = withPriceAndDetour.length >= 3 ? (() => {
-    const prices = withPriceAndDetour.map((s) => s.properties.price!);
-    const detours = withPriceAndDetour.map((s) => s.properties.detourMin!);
-    const minP = Math.min(...prices), maxP = Math.max(...prices);
-    const minD = Math.min(...detours), maxD = Math.max(...detours);
-    const rangeP = maxP - minP || 1;
-    const rangeD = maxD - minD || 1;
-    let bestScore = Infinity;
-    let bestId = withPriceAndDetour[0].properties.id;
-    for (const s of withPriceAndDetour) {
-      const normP = (s.properties.price! - minP) / rangeP;
-      const normD = (s.properties.detourMin! - minD) / rangeD;
-      const score = normP * 0.6 + normD * 0.4;
-      if (score < bestScore) { bestScore = score; bestId = s.properties.id; }
-    }
-    // Only show if different from cheapest and shortest
-    return (bestId !== cheapestId && bestId !== shortestDetourId) ? bestId : null;
-  })() : null;
+    // Badges: cheapest, shortest detour, balanced (only when 2+ stations)
+    const cheapest = withPrice.length > 0
+      ? withPrice.reduce((best, s) => (s.properties.price! < best.properties.price! ? s : best)).properties.id
+      : null;
+    const withKnownDetour = stationList.filter((s) => s.properties.detourMin != null && s.properties.detourMin >= 0);
+    const shortestDetour = withKnownDetour.length > 0
+      ? withKnownDetour.reduce((best, s) => (s.properties.detourMin! < best.properties.detourMin! ? s : best)).properties.id
+      : null;
+    // Balanced: normalize price (0-1) and detour (0-1) — requires both values
+    const withPriceAndDetour = stationList.filter((s) => s.properties.price != null && s.properties.detourMin != null && s.properties.detourMin >= 0);
+    const balanced = withPriceAndDetour.length >= 3 ? (() => {
+      const prices = withPriceAndDetour.map((s) => s.properties.price!);
+      const detours = withPriceAndDetour.map((s) => s.properties.detourMin!);
+      const minP = Math.min(...prices), maxP = Math.max(...prices);
+      const minD = Math.min(...detours), maxD = Math.max(...detours);
+      const rangeP = maxP - minP || 1;
+      const rangeD = maxD - minD || 1;
+      let bestScore = Infinity;
+      let bestId = withPriceAndDetour[0].properties.id;
+      for (const s of withPriceAndDetour) {
+        const normP = (s.properties.price! - minP) / rangeP;
+        const normD = (s.properties.detourMin! - minD) / rangeD;
+        const score = normP * 0.6 + normD * 0.4;
+        if (score < bestScore) { bestScore = score; bestId = s.properties.id; }
+      }
+      // Only show if different from cheapest and shortest
+      return (bestId !== cheapest && bestId !== shortestDetour) ? bestId : null;
+    })() : null;
+
+    return { avgPrice: avg, cheapestId: cheapest, shortestDetourId: shortestDetour, balancedId: balanced };
+  }, [stationList]);
 
   return (
     <div className="absolute left-2 right-2 top-2 z-10 flex max-h-[calc(100dvh-4rem)] flex-col sm:left-3 sm:right-auto sm:top-3 sm:w-[340px]">
@@ -738,28 +752,15 @@ export function SearchPanel({
       {primaryRoute && !collapsed && (
         <div className="mt-2 shrink-0 rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
           {/* All routes — selected one shows preview metrics when active */}
-          {routes && routes.map((route, i) => {
-            const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
-            const isSelected = i === primaryRouteIndex;
-            const effectiveRoute = (isSelected && displayRoutes?.[0]) || route;
-            return (
-              <button
-                key={i}
-                onClick={() => !isSelected && onSelectRoute?.(i)}
-                className={`flex w-full items-center justify-between px-4 py-2 ${i > 0 ? "border-t border-gray-100 dark:border-gray-700" : ""} ${isSelected ? "" : "hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"}`}
-              >
-                <div className="flex items-center gap-2 text-sm">
-                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                  <span className={isSelected ? "text-gray-500 dark:text-gray-400" : "text-gray-400"}>{formatDistance(effectiveRoute.distance)}</span>
-                </div>
-                {isSelected && isLoading ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
-                ) : (
-                  <span className={`text-sm ${isSelected ? "font-semibold text-gray-800 dark:text-gray-100" : "text-gray-500"}`}>{formatDuration(effectiveRoute.duration)}</span>
-                )}
-              </button>
-            );
-          })}
+          {routes && (
+            <RouteAlternatives
+              routes={routes}
+              displayRoutes={displayRoutes}
+              primaryRouteIndex={primaryRouteIndex}
+              isLoading={isLoading}
+              onSelectRoute={onSelectRoute}
+            />
+          )}
         </div>
       )}
 
@@ -782,158 +783,35 @@ export function SearchPanel({
 
       {/* Station list along route — hidden when collapsed */}
       {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
-        <div className="mt-2 flex min-h-0 flex-1 flex-col rounded-xl border border-black/[0.08] bg-white/70 shadow-lg backdrop-blur-md dark:border-white/[0.08] dark:bg-gray-900/70">
-          <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-gray-700">
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("stations.title")} ({stationList.length})
-            </span>
-            {avgPrice != null && (
-              <span className="text-[10px] text-gray-400">
-                {t("stations.avg")} {formatPrice(avgPrice)} {currencySymbol}/L
-              </span>
-            )}
-          </div>
-          {/* Sort + detour controls */}
-          <div className="shrink-0 border-b border-gray-100 px-4 py-2 dark:border-gray-700">
-            <div className="flex items-center gap-1">
-              {(["price", "detour", "km"] as const).map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setSortBy(key)}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    sortBy === key
-                      ? "bg-gray-800 text-white dark:bg-gray-200 dark:text-gray-900"
-                      : "bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-                  }`}
-                >
-                  {key === "price" ? t("stations.sortPrice") : key === "detour" ? t("stations.sortDetour") : t("stations.sortKm")}
-                </button>
-              ))}
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-[11px] text-gray-500 dark:text-gray-400">{t("stations.detourMax")}</span>
-              <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300">
-                {maxDetour == null ? t("stations.noLimit") : `${maxDetour} min`}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={30}
-              step={1}
-              value={maxDetour ?? 30}
-              onChange={(e) => {
-                const v = parseInt(e.target.value);
-                onMaxDetourChange?.(v >= 30 ? null : v);
-              }}
-              className="mt-1 h-1 w-full cursor-pointer touch-none accent-emerald-500"
-            />
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-[11px] text-gray-500 dark:text-gray-400">{t("stations.corridor")}</span>
-              <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300">{corridorKm} km</span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={25}
-              step={1}
-              value={corridorKm}
-              disabled={detoursLoading}
-              onChange={(e) => onCorridorKmChange?.(parseInt(e.target.value))}
-              className={`mt-1 h-1 w-full touch-none accent-emerald-500 ${detoursLoading ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
-            />
-          </div>
-          {stationLegMsg && (
-            <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
-              {stationLegMsg}
-            </div>
-          )}
-          <div className="min-h-0 flex-1 overflow-y-auto sm:max-h-[200px]">
-            {stationList.length === 0 ? (
-              <div className="px-4 py-4 text-center text-xs text-gray-400">
-                {t("stations.empty")}
-              </div>
-            ) : stationList.map((station) => {
-              const km = primaryRoute
-                ? (station.properties.routeFraction ?? 0) * primaryRoute.distance
-                : 0;
-              const hasDetour = station.properties.detourMin != null;
-              const detour = station.properties.detourMin ?? 0;
-              const sid = station.properties.id;
-              const isCheapest = sid === cheapestId;
-              const isShortest = sid === shortestDetourId;
-              const isBalanced = sid === balancedId;
-              const isActive = sid === selectedStationId;
-              const highlight = isActive
-                ? "bg-blue-100 ring-1 ring-inset ring-blue-300 dark:bg-blue-900/50 dark:ring-blue-700"
-                : isCheapest ? "bg-emerald-50 dark:bg-emerald-950/40" : isShortest ? "bg-blue-50 dark:bg-blue-950/40" : isBalanced ? "bg-amber-50 dark:bg-amber-950/40" : "";
-              return (
-                <button
-                  key={sid}
-                  onClick={() => {
-                    if (isActive) {
-                      // Toggle off: remove station-leg waypoint and clear preview
-                      setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
-                      onClearStationLeg?.();
-                    } else {
-                      onFlyTo(station.geometry.coordinates, sid);
-                    }
-                    if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
-                  }}
-                  className={`flex w-full items-center justify-between border-b border-gray-50 px-4 py-2 text-left last:border-b-0 dark:border-gray-800 ${highlight || "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
-                      {station.properties.brand && (
-                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{station.properties.brand}</span>
-                      )}
-                      {isCheapest && (
-                        <span className="rounded bg-emerald-500 px-1 py-0.5 text-[9px] font-bold leading-none text-white">{t("stations.cheapest")}</span>
-                      )}
-                      {isShortest && (
-                        <span className="rounded bg-blue-500 px-1 py-0.5 text-[9px] font-bold leading-none text-white">{t("stations.leastDetour")}</span>
-                      )}
-                      {isBalanced && (
-                        <span className="rounded bg-amber-500 px-1 py-0.5 text-[9px] font-bold leading-none text-white">{t("stations.balanced")}</span>
-                      )}
-                    </div>
-                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">{station.properties.name}</p>
-                  </div>
-                  <div className="ml-3 shrink-0 text-right">
-                    {station.properties.price != null && (() => {
-                      const sc = CURRENCIES.find((c) => c.code === station.properties.currency);
-                      const sym = sc?.symbol ?? station.properties.currency;
-                      const dec = station.properties.originalCurrency ? undefined : sc?.decimals;
-                      return (
-                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                          {station.properties.originalCurrency && <span className="font-normal text-gray-400">≈ </span>}
-                          {dec != null ? station.properties.price.toFixed(dec) : formatPrice(station.properties.price)} {sym}
-                        </span>
-                      );
-                    })()}
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span className="text-[10px] text-gray-400">km {km.toFixed(0)}</span>
-                      {hasDetour ? (
-                        detour < 0
-                          ? <span className="text-[10px] text-gray-300">&mdash;</span>
-                          : detour > 0 && <span className="text-[10px] text-amber-600">+{detour.toFixed(0)} min</span>
-                      ) : (
-                        detoursLoading && <span className="text-[10px] text-gray-300 animate-pulse">...</span>
-                      )}
-                      {avgPrice != null && station.properties.price != null && (() => {
-                        const diff = station.properties.price - avgPrice;
-                        if (Math.abs(diff) < 0.001) return null;
-                        return diff < 0
-                          ? <span className="text-[10px] font-medium text-emerald-600">{formatPrice(diff)}</span>
-                          : <span className="text-[10px] text-gray-400">+{formatPrice(diff)}</span>;
-                      })()}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <StationResults
+          stationList={stationList}
+          avgPrice={avgPrice}
+          cheapestId={cheapestId}
+          shortestDetourId={shortestDetourId}
+          balancedId={balancedId}
+          selectedStationId={selectedStationId}
+          sortBy={sortBy}
+          onSortByChange={setSortBy}
+          maxDetour={maxDetour}
+          onMaxDetourChange={onMaxDetourChange}
+          detourBasis={detourBasis}
+          onDetourBasisChange={onDetourBasisChange}
+          corridorKm={corridorKm}
+          onCorridorKmChange={onCorridorKmChange}
+          detoursLoading={detoursLoading}
+          primaryRoute={primaryRoute}
+          stationLegMsg={stationLegMsg}
+          onStationToggleOff={() => {
+            // Toggle off: remove station-leg waypoint and clear preview
+            setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+            onClearStationLeg?.();
+            if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
+          }}
+          onStationSelect={(coords, sid) => {
+            onFlyTo(coords, sid);
+            if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
+          }}
+        />
       )}
     </div>
   );
@@ -943,49 +821,4 @@ function formatResult(r: PhotonResult): string {
   const parts = [r.name];
   if (r.city && r.city !== r.name) parts.push(r.city);
   return parts.join(", ");
-}
-
-function formatDistance(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  return `${km.toFixed(1)} km`;
-}
-
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  if (h === 0) return `${m} min`;
-  return `${h} h ${m} min`;
-}
-
-/** Project a point onto a LineString and return its fraction (0–1) along the line. */
-function projectOntoRoute(point: [number, number], coords: [number, number][]): number {
-  if (coords.length < 2) return 0;
-  let bestDist = Infinity;
-  let bestFrac = 0;
-  let cumLen = 0;
-  const segLens: number[] = [];
-  for (let i = 1; i < coords.length; i++) {
-    const dx = coords[i][0] - coords[i - 1][0];
-    const dy = coords[i][1] - coords[i - 1][1];
-    segLens.push(Math.sqrt(dx * dx + dy * dy));
-  }
-  const totalLen = segLens.reduce((s, l) => s + l, 0);
-  if (totalLen === 0) return 0;
-
-  for (let i = 0; i < segLens.length; i++) {
-    const ax = coords[i][0], ay = coords[i][1];
-    const bx = coords[i + 1][0], by = coords[i + 1][1];
-    const abx = bx - ax, aby = by - ay;
-    const apx = point[0] - ax, apy = point[1] - ay;
-    const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / (abx * abx + aby * aby || 1)));
-    const px = ax + t * abx, py = ay + t * aby;
-    const dx = point[0] - px, dy = point[1] - py;
-    const d = dx * dx + dy * dy;
-    if (d < bestDist) {
-      bestDist = d;
-      bestFrac = (cumLen + t * segLens[i]) / totalLen;
-    }
-    cumLen += segLens[i];
-  }
-  return bestFrac;
 }

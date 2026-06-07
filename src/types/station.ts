@@ -1,22 +1,9 @@
 export type StationType = "fuel" | "ev_charger" | "both";
 
-export type FuelType =
-  | "E5"
-  | "E5_PREMIUM"
-  | "E10"
-  | "E5_98"
-  | "E98_E10"
-  | "B7"
-  | "B7_PREMIUM"
-  | "B10"
-  | "B_AGRICULTURAL"
-  | "HVO"
-  | "LPG"
-  | "CNG"
-  | "LNG"
-  | "H2"
-  | "ADBLUE"
-  | "EV";
+// FuelType is derived from the canonical FUEL_TYPE_CODES tuple in ./fuel.
+// Re-exported here so existing `@/types/station` consumers keep working.
+export type { FuelType } from "./fuel";
+import type { FuelType } from "./fuel";
 
 export interface Station {
   id: string;
@@ -44,10 +31,6 @@ export interface FuelPrice {
   source: string;
 }
 
-export interface StationWithPrices extends Station {
-  prices: FuelPrice[];
-}
-
 export interface StationGeoJSON {
   type: "Feature";
   geometry: {
@@ -70,6 +53,8 @@ export interface StationGeoJSON {
     originalCurrency?: string;
     routeFraction?: number;
     detourMin?: number;
+    /** Distance from the query point in km (only set by /api/stations/nearest) */
+    distanceKm?: number;
   };
 }
 

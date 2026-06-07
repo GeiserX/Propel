@@ -111,6 +111,57 @@ describe("photon geocode", () => {
     expect(results[0].name).toBe("Unknown Place");
   });
 
+  it("returns empty array when response body is not valid JSON", async () => {
+    const { geocode } = await import("./photon");
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError("Unexpected token < in JSON");
+      },
+    } as unknown as Response);
+
+    const results = await geocode("Madrid");
+    expect(results).toEqual([]);
+  });
+
+  it("returns empty array when features is not an array", async () => {
+    const { geocode } = await import("./photon");
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection" }),
+    } as Response);
+
+    const results = await geocode("Madrid");
+    expect(results).toEqual([]);
+  });
+
+  it("skips features with malformed geometry coordinates", async () => {
+    const { geocode } = await import("./photon");
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        type: "FeatureCollection",
+        features: [
+          { type: "Feature", geometry: { type: "Point" }, properties: { name: "NoCoords" } },
+          { type: "Feature", properties: { name: "NoGeometry" } },
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [-3.7, 40.4] },
+            properties: { name: "Valid" },
+          },
+        ],
+      }),
+    } as Response);
+
+    const results = await geocode("test");
+    expect(results).toHaveLength(1);
+    expect(results[0].name).toBe("Valid");
+    expect(results[0].coordinates).toEqual([-3.7, 40.4]);
+  });
+
   it("does not send lat/lon params when not provided", async () => {
     const { geocode } = await import("./photon");
 

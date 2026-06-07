@@ -8,8 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "vitest run --project node --project components",
+    "test:coverage": "vitest run --project node --project components --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "scraper:run": "npx tsx src/scrapers/cli.ts"
   },
   "repository": {
@@ -36,12 +37,20 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "@testcontainers/postgresql": "^12.0.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.9.1",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^9.28.0",
     "eslint-config-next": "^16.2.7",
+    "jsdom": "^29.1.1",
+    "pg": "^8.21.0",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.22.4",
@@ -53,7 +62,9 @@
     "@hono/node-server": "^1.19.13",
     "lodash": "^4.17.23",
     "effect": "^3.21.0",
-    "brace-expansion": "^5.0.5",
-    "minimatch": "^10.2.4"
+    "brace-expansion": "^5.0.6",
+    "minimatch": "^10.2.4",
+    "fast-uri": "^3.1.2",
+    "postcss": "^8.5.14"
   }
 }

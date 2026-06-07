@@ -1,4 +1,34 @@
-import type { FuelType } from "./station";
+import { z } from "zod";
+
+/**
+ * Single source of truth for fuel type codes (EU harmonized, EN 16942).
+ * The `FuelType` union (re-exported from ./station) and the reusable Zod enum
+ * below are both derived from this tuple. API routes import `fuelTypeEnum`
+ * instead of re-declaring the list, keeping everything in sync.
+ */
+export const FUEL_TYPE_CODES = [
+  "E5",
+  "E5_PREMIUM",
+  "E10",
+  "E5_98",
+  "E98_E10",
+  "B7",
+  "B7_PREMIUM",
+  "B10",
+  "B_AGRICULTURAL",
+  "HVO",
+  "LPG",
+  "CNG",
+  "LNG",
+  "H2",
+  "ADBLUE",
+  "EV",
+] as const;
+
+export type FuelType = (typeof FUEL_TYPE_CODES)[number];
+
+/** Reusable Zod enum derived from the canonical fuel type tuple. */
+export const fuelTypeEnum = z.enum(FUEL_TYPE_CODES);
 
 export interface FuelTypeInfo {
   code: FuelType;
@@ -10,6 +40,7 @@ export const FUEL_TYPES: FuelTypeInfo[] = [
   // Diesel
   { code: "B7", label: "Diesel (A)", category: "diesel" },
   { code: "B7_PREMIUM", label: "Diesel Premium", category: "diesel" },
+  { code: "B10", label: "Diesel B10", category: "diesel" },
   { code: "B_AGRICULTURAL", label: "Diesel B (Agrícola)", category: "diesel" },
   { code: "HVO", label: "Diesel Renovable (HVO)", category: "diesel" },
   // Gasoline
