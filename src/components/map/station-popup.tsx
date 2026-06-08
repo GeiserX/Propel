@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { Popup } from "react-map-gl/maplibre";
 import type { StationGeoJSON } from "@/types/station";
 import { FUEL_TYPE_MAP } from "@/types/fuel";
 import { useI18n } from "@/lib/i18n";
 import { useCurrency, CURRENCIES } from "@/lib/currency";
+import { shareOrCopy } from "@/lib/share";
+import { buildStationQuery } from "@/lib/share-url";
 
 interface StationPopupProps {
   station: StationGeoJSON;
@@ -29,6 +32,7 @@ function symbolFor(code: string): string {
 export function StationPopup({ station, onClose }: StationPopupProps) {
   const { t } = useI18n();
   const { decimals: userDecimals, rateInfo } = useCurrency();
+  const [copied, setCopied] = useState(false);
   const { properties, geometry } = station;
   // `properties.fuelType` is a raw string; the cast narrows it to the map key
   // type for the lookup. `.get()` returns undefined for unknown codes, which is
@@ -42,6 +46,35 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
   const stationCurrency = CURRENCIES.find((c) => c.code === properties.currency);
   const displaySymbol = stationCurrency?.symbol ?? properties.currency;
   const displayDecimals = isConverted ? userDecimals : (stationCurrency?.decimals ?? 3);
+
+  const lat = geometry.coordinates[1];
+  const lng = geometry.coordinates[0];
+
+  // Compact price label reused in the share payload's text.
+  const priceLabel =
+    properties.price != null
+      ? `${properties.price.toFixed(displayDecimals)} ${displaySymbol}/L`
+      : t("popup.noPrice");
+
+  async function handleShare() {
+    const sp = buildStationQuery({
+      country: properties.country ?? "",
+      externalId: properties.externalId ?? "",
+      lat,
+      lng,
+    });
+    const url = `${window.location.origin}${window.location.pathname}?${sp}`;
+    const outcome = await shareOrCopy({
+      title: properties.brand ?? "Pumperly",
+      text: `${properties.brand ?? ""} — ${priceLabel}`,
+      url,
+    });
+    if (outcome === "copied") {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+    // "shared" needs no UI; "dismissed"/"failed" are swallowed silently.
+  }
 
   return (
     <Popup
@@ -109,22 +142,51 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
           </div>
         )}
 
-        {/* Navigate button — prefer address for better Google Maps routing */}
-        <a
-          href={`https://www.google.com/maps/dir/?api=1&destination=${
-            properties.address
-              ? encodeURIComponent(`${properties.address}, ${properties.city}`)
-              : `${geometry.coordinates[1]},${geometry.coordinates[0]}`
-          }`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-600"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
-          </svg>
-          {t("popup.navigate")}
-        </a>
+        {/* Action row */}
+        <div className="mt-2 flex items-stretch gap-1.5">
+          {/* Navigate — Google Maps directions; prefer address for better routing */}
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${
+              properties.address
+                ? encodeURIComponent(`${properties.address}, ${properties.city}`)
+                : `${lat},${lng}`
+            }`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-500 px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-600"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+            </svg>
+            {t("popup.navigate")}
+          </a>
+
+          {/* Show on map — Google Maps pin (search), not directions */}
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-2 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+            </svg>
+            {t("popup.showOnMap")}
+          </a>
+
+          {/* Share — Web Share API with clipboard fallback */}
+          <button
+            type="button"
+            onClick={handleShare}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-2 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+            </svg>
+            {copied ? t("popup.copied") : t("popup.share")}
+          </button>
+        </div>
       </div>
     </Popup>
   );

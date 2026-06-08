@@ -179,7 +179,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
   }, []);
 
   const inputClassName = bare
-    ? "w-full bg-transparent px-3 py-2.5 text-base sm:text-sm text-gray-900 placeholder-gray-400 outline-none dark:text-gray-100 dark:placeholder-gray-500"
+    ? "w-full bg-transparent px-3 py-2.5 text-base sm:text-sm font-medium text-gray-900 placeholder-gray-400 outline-none dark:text-gray-100 dark:placeholder-gray-500"
     : "w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-base sm:text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
 
   return (
@@ -205,19 +205,19 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
 
       {/* Location option shown when focused with no/short input; also prepended to results */}
       {(isOpen && results.length > 0) || (isFocused && locationLabel && onLocationSelect && value.length < 2 && !isOpen) ? (
-        <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+        <ul className="absolute z-50 mt-1.5 max-h-56 w-full overflow-auto rounded-xl border border-black/[0.06] bg-white/95 p-1 shadow-xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/95 dark:shadow-black/40 dark:ring-white/[0.04]">
           {locationLabel && onLocationSelect && (
             <li
-              className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-gray-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700 dark:text-gray-200 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
               onMouseDown={(e) => {
                 e.preventDefault();
                 onLocationSelect();
                 setIsFocused(false);
               }}
             >
-              <span className="relative flex h-4 w-4 items-center justify-center">
-                <span className="absolute h-3 w-3 animate-ping rounded-full bg-blue-400/40" />
-                <span className="relative h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-blue-500/20" />
+              <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+                <span className="absolute h-3 w-3 animate-ping rounded-full bg-emerald-400/40" />
+                <span className="relative h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/25" />
               </span>
               <span className="font-medium">{locationLabel}</span>
             </li>
@@ -225,24 +225,35 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
           {results.map((r, i) => (
             <li
               key={`${r.coordinates[0]}-${r.coordinates[1]}-${i}`}
-              className={`cursor-pointer px-3 py-2 text-sm ${
-                i === activeIndex ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+              className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                i === activeIndex
+                  ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
+                  : "text-gray-700 hover:bg-gray-100/80 dark:text-gray-200 dark:hover:bg-white/[0.06]"
               }`}
               onMouseDown={(e) => { e.preventDefault(); handleSelect(r); }}
               onMouseEnter={() => setActiveIndex(i)}
             >
-              <span className="font-medium">{r.name}</span>
-              {(r.city || r.state) && (
-                <span className="ml-1 text-gray-400">
-                  {[r.city, r.state].filter(Boolean).join(", ")}
-                </span>
-              )}
+              <svg
+                className={`h-4 w-4 shrink-0 ${i === activeIndex ? "text-emerald-500 dark:text-emerald-400" : "text-gray-400 dark:text-gray-500"}`}
+                fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+              </svg>
+              <span className="min-w-0 truncate">
+                <span className="font-medium">{r.name}</span>
+                {(r.city || r.state) && (
+                  <span className="ml-1 text-gray-400 dark:text-gray-500">
+                    {[r.city, r.state].filter(Boolean).join(", ")}
+                  </span>
+                )}
+              </span>
             </li>
           ))}
         </ul>
       ) : null}
       {noResults && !isOpen && value.length >= 2 && (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-black/[0.06] bg-white/95 px-3 py-2.5 text-sm text-gray-400 shadow-xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/95 dark:text-gray-500 dark:shadow-black/40 dark:ring-white/[0.04]">
           {t("search.noResults")}
         </div>
       )}

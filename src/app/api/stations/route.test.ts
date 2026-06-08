@@ -27,6 +27,8 @@ function makeRequest(params: Record<string, string>) {
 
 const mockRow = {
   id: "st1",
+  external_id: "ESP-12345",
+  country: "ES",
   name: "Repsol Madrid",
   brand: "Repsol",
   address: "Calle Test 1",
@@ -59,6 +61,8 @@ describe("stations API", () => {
     expect(f.type).toBe("Feature");
     expect(f.geometry.coordinates).toEqual([-3.6, 40.38]);
     expect(f.properties.id).toBe("st1");
+    expect(f.properties.externalId).toBe("ESP-12345");
+    expect(f.properties.country).toBe("ES");
     expect(f.properties.price).toBe(1.459);
     expect(f.properties.fuelType).toBe("B7");
     expect(f.properties.reportedAt).toBe("2026-04-20T10:00:00.000Z");

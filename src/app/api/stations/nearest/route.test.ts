@@ -34,6 +34,8 @@ const validParams = {
 
 const mockRow = {
   id: "st1",
+  external_id: "ESP-12345",
+  country: "ES",
   name: "Repsol Madrid",
   brand: "Repsol",
   address: "Calle Test 1",
@@ -62,6 +64,8 @@ describe("stations/nearest API", () => {
     expect(response.data.features).toHaveLength(1);
     const f = response.data.features[0];
     expect(f.properties.id).toBe("st1");
+    expect(f.properties.externalId).toBe("ESP-12345");
+    expect(f.properties.country).toBe("ES");
     expect(f.properties.distanceKm).toBe(2.345);
     expect(f.properties.price).toBe(1.459);
     expect(f.properties.fuelType).toBe("B7");

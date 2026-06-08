@@ -55,6 +55,8 @@ const validBody = {
 
 const mockStationRow = {
   id: "st1",
+  external_id: "ESP-12345",
+  country: "ES",
   name: "Repsol Madrid",
   brand: "Repsol",
   address: "Calle Test 1",
@@ -93,6 +95,8 @@ describe("route-stations API", () => {
     expect(feature.type).toBe("Feature");
     expect(feature.geometry.type).toBe("Point");
     expect(feature.properties.id).toBe("st1");
+    expect(feature.properties.externalId).toBe("ESP-12345");
+    expect(feature.properties.country).toBe("ES");
     expect(feature.properties.name).toBe("Repsol Madrid");
     expect(feature.properties.price).toBe(1.459);
     expect(feature.properties.fuelType).toBe("B7");
@@ -103,6 +107,9 @@ describe("route-stations API", () => {
     const sql = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
     // WKT is parsed once in a CTE (route.g), then referenced as r.g everywhere.
     expect(sql).toContain("WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)");
+    // Durable station identity is selected for shareable deep-links.
+    expect(sql).toContain("s.external_id AS external_id");
+    expect(sql).toContain("s.country AS country");
     // 2-arg ST_Expand(dx, dy) — longitude/latitude padded separately so the
     // bbox prefilter doesn't clip valid stations at high latitudes.
     expect(sql).toContain("s.geom && ST_Expand(r.g::geometry, $2, $3)");

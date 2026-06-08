@@ -43,6 +43,8 @@ const bodySchema = z.object({
 
 interface StationRow {
   id: string;
+  external_id: string;
+  country: string;
   name: string;
   brand: string | null;
   address: string;
@@ -110,7 +112,8 @@ export async function POST(request: NextRequest) {
           `
           WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)
           SELECT
-            s.id, s.name, s.brand, s.address, s.city,
+            s.id, s.external_id AS external_id, s.country AS country,
+            s.name, s.brand, s.address, s.city,
             ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
             NULL::float AS price, 'EUR' AS currency,
             NULL::timestamptz AS reported_at,
@@ -132,7 +135,8 @@ export async function POST(request: NextRequest) {
           `
           WITH route AS (SELECT ST_GeomFromText($1, 4326) AS g)
           SELECT
-            s.id, s.name, s.brand, s.address, s.city,
+            s.id, s.external_id AS external_id, s.country AS country,
+            s.name, s.brand, s.address, s.city,
             ST_X(s.geom) AS longitude, ST_Y(s.geom) AS latitude,
             fp.price::float AS price,
             COALESCE(fp.currency, 'EUR') AS currency,
@@ -169,6 +173,8 @@ export async function POST(request: NextRequest) {
       },
       properties: {
         id: row.id,
+        externalId: row.external_id,
+        country: row.country,
         name: row.name,
         brand: row.brand,
         address: row.address,
