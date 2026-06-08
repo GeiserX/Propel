@@ -88,6 +88,18 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const initialRoute = deepLink.route;
   const deepLinkStationRef = useRef<DeepLinkStation | null>(deepLink.station);
   const deepLinkResolvedRef = useRef(false);
+  // True while a station deep-link is still pending resolution. The station-WRITE
+  // effect checks this so it does NOT strip ?station off the URL on mount before
+  // the resolve effect has matched the deep-linked station against loaded features.
+  const stationDeepLinkPendingRef = useRef(deepLink.station != null);
+  // True while an initial route deep-link is still resolving (route fetch is
+  // async, and may fail). Suppresses the bare-URL strip so ?from&to&via&fuel
+  // survive mount until either the route settles or the user changes endpoints.
+  const routeDeepLinkPendingRef = useRef(deepLink.route != null);
+  // A deep link was present at load — used to suppress auto-geolocation so the
+  // shared target (station or route) wins the initial camera, not the user's
+  // current location.
+  const hasDeepLink = deepLink.route != null || deepLink.station != null;
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   // Default to a 5-minute max detour so users see only worthwhile stops; they
   // can widen it (up to "no limit") via the slider.
@@ -112,14 +124,11 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     return () => navigator.geolocation.clearWatch(watchId);
   }, [geoState]);
 
-  // Deep-link station: fly to the shared coords once on mount. flyTo is an
-  // external-system call (no React state), so this stays a plain mount effect.
+  // Deep-link camera move. NOTE: mapRef is only assigned inside MapView's
+  // MapLibre `onLoad` (which runs AFTER this parent mounts), so a bare mount
+  // effect would flyTo a still-null ref and silently no-op. Instead we fly from
+  // the map-ready path (handleMapReady), which fires once the map ref exists.
   // The actual popup selection happens later, when matching features load.
-  useEffect(() => {
-    const target = deepLinkStationRef.current;
-    if (!target || target.lat == null || target.lng == null) return;
-    mapRef.current?.flyTo({ center: [target.lng, target.lat], zoom: 14, duration: 1500 });
-  }, []);
 
   const handleGeolocate = useCallback(() => {
     if (!navigator.geolocation) { setGeoState("denied"); return; }
@@ -136,8 +145,21 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     );
   }, []);
 
-  // Auto-geolocate when map is ready (prompts if permission not yet decided)
+  // Called once the map ref is live (MapLibre onLoad). A deep link always wins
+  // the initial camera, so we move there and skip auto-geolocation entirely:
+  //   - station deep-link: flyTo the shared coords here (the popup opens later,
+  //     once matching features stream in and the resolve effect matches);
+  //   - route deep-link: SearchPanel's prefill triggers the route fetch, which
+  //     fitBounds the result — nothing to do here beyond not stealing the camera.
+  // Without a deep link, auto-geolocate as before (prompts if not yet decided).
   const handleMapReady = useCallback(() => {
+    if (hasDeepLink) {
+      const target = deepLinkStationRef.current;
+      if (target && target.lat != null && target.lng != null) {
+        mapRef.current?.flyTo({ center: [target.lng, target.lat], zoom: 14, duration: 1500 });
+      }
+      return;
+    }
     if (!navigator.geolocation) return;
     if (navigator.permissions?.query) {
       navigator.permissions.query({ name: "geolocation" }).then((perm) => {
@@ -148,7 +170,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     } else {
       handleGeolocate();
     }
-  }, [handleGeolocate]);
+  }, [handleGeolocate, hasDeepLink]);
 
   const handleFuelChange = useCallback((fuel: FuelType) => {
     setSelectedFuel(fuel);
@@ -280,6 +302,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleClearRoute = useCallback(() => {
     if (routeAbortRef.current) routeAbortRef.current.abort();
     if (stationLegAbortRef.current) stationLegAbortRef.current.abort();
+    // A clear is a user action that changes origin/destination — the initial
+    // route deep-link no longer owns the URL, so stop suppressing the strip.
+    routeDeepLinkPendingRef.current = false;
     setRouteState(null);
     setStationLegRoutes(null);
     setIsRouteLoading(false);
@@ -374,10 +399,25 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     if (match) {
       deepLinkResolvedRef.current = true;
       deepLinkStationRef.current = null;
+      // NOTE: do NOT clear stationDeepLinkPendingRef here. Effects run top-to-
+      // bottom within a commit, so the station-WRITE effect below would see the
+      // not-yet-applied selectedStationId as null AND the just-cleared flag, and
+      // strip the URL. Instead, the WRITE effect clears the flag in its
+      // station-selected branch once setSelectedStationId has actually applied.
       selectedStationCoordsRef.current = match.geometry.coordinates;
       setSelectedStationId(match.properties.id);
     }
   }, [primaryStations]);
+
+  // Once an initial route deep-link resolves to a real route, SearchPanel's
+  // route-write effect takes over the URL and the station-WRITE effect's
+  // `if (routeState) return` guard prevents any strip — so we can stop
+  // suppressing. If routing FAILS (routeState stays null), the suppression
+  // stays in place and the route params survive until the user changes
+  // origin/destination (which routes through handleClearRoute).
+  useEffect(() => {
+    if (routeState) routeDeepLinkPendingRef.current = false;
+  }, [routeState]);
 
   // ---------------------------------------------------------------------------
   // Deep-link write — station param
@@ -390,6 +430,14 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   // We only write the station param when the selected feature is resolvable here
   // (it carries externalId+country); otherwise we leave the URL untouched rather
   // than emit a partial link. The flyTo/selection UX is unaffected either way.
+  //
+  // CRITICAL — do NOT strip params on mount before a deep-link resolves: on the
+  // first render selectedStationId is null and routeState is null (both resolve
+  // asynchronously — station via on-screen features, route via /api/route), so an
+  // unguarded strip would wipe ?station / ?from&to&via&fuel before they ever take
+  // effect (and lose them forever if /api/route fails). We only strip once neither
+  // a station nor a route deep-link is still pending — i.e. on a genuine user
+  // deselect after the initial resolve, not on mount.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (routeState) return; // route owns the URL
@@ -397,9 +445,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     const hasParams = window.location.search.length > 0;
 
     if (!selectedStationId) {
-      if (hasParams) window.history.replaceState(null, "", pathname);
+      const deepLinkPending = stationDeepLinkPendingRef.current || routeDeepLinkPendingRef.current;
+      if (hasParams && !deepLinkPending) window.history.replaceState(null, "", pathname);
       return;
     }
+    // A station got selected — the station deep-link (if any) is now moot.
+    stationDeepLinkPendingRef.current = false;
 
     const feature = primaryStations.features.find((f) => f.properties.id === selectedStationId);
     const extId = feature?.properties.externalId;

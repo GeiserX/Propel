@@ -23,6 +23,16 @@ describe("roundCoord", () => {
     expect(roundCoord(0)).toBe(0);
     expect(roundCoord(12.5)).toBe(12.5);
   });
+
+  it("rounds a negative coordinate on the .5 boundary toward +Infinity", () => {
+    // Math.round rounds half toward +Infinity, so -3.703795 * 1e5 = -370379.5
+    // -> Math.round(-370379.5) = -370379 -> -3.70379 (NOT -3.7038).
+    // Pinned so a refactor to toFixed/Math.trunc (which would yield -3.7038
+    // or -3.70379 by truncation) is caught.
+    expect(roundCoord(-3.703795)).toBe(-3.70379);
+    // Symmetric positive boundary still rounds up.
+    expect(roundCoord(3.703795)).toBe(3.7038);
+  });
 });
 
 describe("formatLatLng", () => {
@@ -33,6 +43,11 @@ describe("formatLatLng", () => {
   it("rounds each component independently", () => {
     expect(formatLatLng(1.123456, 2.654321)).toBe("1.12346,2.65432");
   });
+
+  it("formats a southern/western-hemisphere pair (both negative)", () => {
+    // Buenos Aires: negative lat (south) and negative lng (west).
+    expect(formatLatLng(-34.603722, -58.381592)).toBe("-34.60372,-58.38159");
+  });
 });
 
 describe("parseLatLng", () => {
@@ -42,6 +57,18 @@ describe("parseLatLng", () => {
 
   it("parses zero coordinates", () => {
     expect(parseLatLng("0,0")).toEqual({ lat: 0, lng: 0 });
+  });
+
+  it("parses a southern/western-hemisphere pair (both negative)", () => {
+    expect(parseLatLng("-34.60372,-58.38159")).toEqual({ lat: -34.60372, lng: -58.38159 });
+  });
+
+  it("round-trips a negative pair through formatLatLng -> parseLatLng", () => {
+    // Southern-hemisphere lat + western-hemisphere lng (both negative).
+    expect(parseLatLng(formatLatLng(-33.86882, -58.38159))).toEqual({
+      lat: -33.86882,
+      lng: -58.38159,
+    });
   });
 
   it("returns null on malformed input", () => {
@@ -167,6 +194,23 @@ describe("buildRouteQuery / parseRouteParams round-trip", () => {
       from: { lat: 40.41672, lng: -3.70379 },
       to: { lat: 41.3874, lng: 2.16857 },
       via: [],
+      fuel: "E5",
+    });
+  });
+
+  it("round-trips a route whose coords are all negative (southern + western)", () => {
+    const negFrom = { lat: -34.603722, lng: -58.381592 }; // Buenos Aires
+    const negTo = { lat: -33.448891, lng: -70.669266 }; // Santiago
+    const negVia = [{ lat: -32.889458, lng: -68.84584 }]; // Mendoza
+    const sp = buildRouteQuery({ from: negFrom, to: negTo, via: negVia, fuel: "E5" });
+    expect(sp.get("from")).toBe("-34.60372,-58.38159");
+    expect(sp.get("to")).toBe("-33.44889,-70.66927");
+    expect(sp.getAll("via")).toEqual(["-32.88946,-68.84584"]);
+
+    expect(parseRouteParams(sp)).toEqual({
+      from: { lat: -34.60372, lng: -58.38159 },
+      to: { lat: -33.44889, lng: -70.66927 },
+      via: [{ lat: -32.88946, lng: -68.84584 }],
       fuel: "E5",
     });
   });

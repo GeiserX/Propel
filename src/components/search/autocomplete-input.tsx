@@ -179,8 +179,8 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
   }, []);
 
   const inputClassName = bare
-    ? "w-full bg-transparent px-3 py-2.5 text-base sm:text-sm font-medium text-gray-900 placeholder-gray-400 outline-none dark:text-gray-100 dark:placeholder-gray-500"
-    : "w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-base sm:text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
+    ? "w-full bg-transparent px-3 py-2.5 text-base sm:text-sm font-medium text-gray-900 placeholder-gray-500 outline-none dark:text-gray-100 dark:placeholder-gray-500"
+    : "w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-base sm:text-sm text-gray-900 placeholder-gray-500 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
 
   return (
     <div ref={containerRef} className="relative flex-1">
@@ -243,7 +243,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
               <span className="min-w-0 truncate">
                 <span className="font-medium">{r.name}</span>
                 {(r.city || r.state) && (
-                  <span className="ml-1 text-gray-400 dark:text-gray-500">
+                  <span className="ml-1 text-gray-500 dark:text-gray-400">
                     {[r.city, r.state].filter(Boolean).join(", ")}
                   </span>
                 )}
@@ -253,7 +253,7 @@ export const AutocompleteInput = forwardRef<AutocompleteRef, AutocompleteInputPr
         </ul>
       ) : null}
       {noResults && !isOpen && value.length >= 2 && (
-        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-black/[0.06] bg-white/95 px-3 py-2.5 text-sm text-gray-400 shadow-xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/95 dark:text-gray-500 dark:shadow-black/40 dark:ring-white/[0.04]">
+        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-black/[0.06] bg-white/95 px-3 py-2.5 text-sm text-gray-500 shadow-xl shadow-black/10 ring-1 ring-black/[0.04] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/95 dark:text-gray-400 dark:shadow-black/40 dark:ring-white/[0.04]">
           {t("search.noResults")}
         </div>
       )}

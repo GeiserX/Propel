@@ -654,7 +654,7 @@ export function SearchPanel({
                 if (phase === "route") onClearRoute();
                 setPhase("search");
               }}
-              className="mr-1 rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+              className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -707,7 +707,7 @@ export function SearchPanel({
                 />
                 <button
                   onClick={() => removeWaypoint(wp.id)}
-                  className="mr-1 rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+                  className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -726,7 +726,7 @@ export function SearchPanel({
             {origin && destination && (
               <button
                 onClick={handleSwap}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-colors hover:border-emerald-300 hover:text-emerald-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-emerald-500/50 dark:hover:text-emerald-400"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full border border-gray-200 bg-white p-2 text-gray-500 shadow-sm transition-colors hover:border-emerald-300 hover:text-emerald-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-emerald-500/50 dark:hover:text-emerald-400"
                 title={t("search.swap")}
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -767,7 +767,7 @@ export function SearchPanel({
                     onClearRoute();
                   }
                 }}
-                className="mr-1 rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+                className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />

@@ -55,10 +55,10 @@ export function StationResults({
     <div className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-black/[0.06] bg-white/90 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
       <div className="flex shrink-0 items-center justify-between border-b border-black/[0.05] px-4 py-2.5 dark:border-white/[0.06]">
         <span className="text-xs font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">
-          {t("stations.title")} <span className="font-semibold text-gray-400 dark:text-gray-500">({stationList.length})</span>
+          {t("stations.title")} <span className="font-semibold text-gray-500 dark:text-gray-400">({stationList.length})</span>
         </span>
         {avgPrice != null && (
-          <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">
+          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
             {t("stations.avg")} {formatPrice(avgPrice)} {currencySymbol}/L
           </span>
         )}
@@ -72,7 +72,7 @@ export function StationResults({
               onClick={() => onSortByChange(key)}
               className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
                 sortBy === key
-                  ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/30 dark:bg-emerald-500 dark:text-white"
+                  ? "bg-gray-800 text-white dark:bg-gray-100 dark:text-gray-900"
                   : "bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/10"
               }`}
             >
@@ -138,7 +138,7 @@ export function StationResults({
       )}
       <div className="min-h-0 flex-1 overflow-y-auto sm:max-h-[200px]">
         {stationList.length === 0 ? (
-          <div className="px-4 py-4 text-center text-xs font-medium text-gray-400 dark:text-gray-500">
+          <div className="px-4 py-4 text-center text-xs font-medium text-gray-500 dark:text-gray-400">
             {t("stations.empty")}
           </div>
         ) : stationList.map((station) => {
@@ -177,13 +177,13 @@ export function StationResults({
                     <span className="truncate text-xs font-semibold text-gray-800 dark:text-gray-100">{station.properties.brand}</span>
                   )}
                   {isCheapest && (
-                    <span className="shrink-0 rounded-md bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-white shadow-sm shadow-emerald-500/25">{t("stations.cheapest")}</span>
+                    <span className="shrink-0 rounded-md bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-emerald-950 shadow-sm shadow-emerald-500/25">{t("stations.cheapest")}</span>
                   )}
                   {isShortest && (
-                    <span className="shrink-0 rounded-md bg-blue-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-white shadow-sm shadow-blue-500/25">{t("stations.leastDetour")}</span>
+                    <span className="shrink-0 rounded-md bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-white shadow-sm shadow-blue-500/25">{t("stations.leastDetour")}</span>
                   )}
                   {isBalanced && (
-                    <span className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-white shadow-sm shadow-amber-500/25">{t("stations.balanced")}</span>
+                    <span className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide text-amber-950 shadow-sm shadow-amber-500/25">{t("stations.balanced")}</span>
                   )}
                 </div>
                 <p className="truncate text-xs text-gray-500 dark:text-gray-400">{station.properties.name}</p>
@@ -195,13 +195,13 @@ export function StationResults({
                   const dec = station.properties.originalCurrency ? undefined : sc?.decimals;
                   return (
                     <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-50">
-                      {station.properties.originalCurrency && <span className="font-normal text-gray-400 dark:text-gray-500">≈ </span>}
+                      {station.properties.originalCurrency && <span className="font-normal text-gray-500 dark:text-gray-400">≈ </span>}
                       {dec != null ? station.properties.price.toFixed(dec) : formatPrice(station.properties.price)} {sym}
                     </span>
                   );
                 })()}
                 <div className="flex items-center justify-end gap-1.5">
-                  <span className="text-[10px] tabular-nums text-gray-400 dark:text-gray-500">km {km.toFixed(0)}</span>
+                  <span className="text-[10px] tabular-nums text-gray-500 dark:text-gray-400">km {km.toFixed(0)}</span>
                   {hasDetour ? (
                     detour < 0
                       ? <span className="text-[10px] text-gray-300 dark:text-gray-600">&mdash;</span>
@@ -214,7 +214,7 @@ export function StationResults({
                     if (Math.abs(diff) < 0.001) return null;
                     return diff < 0
                       ? <span className="text-[10px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{formatPrice(diff)}</span>
-                      : <span className="text-[10px] tabular-nums text-gray-400 dark:text-gray-500">+{formatPrice(diff)}</span>;
+                      : <span className="text-[10px] tabular-nums text-gray-500 dark:text-gray-400">+{formatPrice(diff)}</span>;
                   })()}
                 </div>
               </div>

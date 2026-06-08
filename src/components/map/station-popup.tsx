@@ -98,7 +98,7 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
         <p className="mt-0.5 text-[11px] text-gray-500 leading-snug dark:text-gray-400">
           {properties.address}
         </p>
-        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
           {properties.city}
         </p>
 
@@ -107,7 +107,7 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
           <div className="mt-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800">
             <div className="flex items-baseline gap-1">
               {isConverted && (
-                <span className="text-[15px] font-medium text-gray-400">≈</span>
+                <span className="text-[15px] font-medium text-gray-500 dark:text-gray-400">≈</span>
               )}
               <span className="text-[22px] font-bold tabular-nums leading-none text-gray-900 dark:text-gray-100">
                 {properties.price.toFixed(displayDecimals)}
@@ -116,17 +116,17 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
                 {displaySymbol}/L
               </span>
             </div>
-            <p className="mt-1 text-[10px] text-gray-400">
+            <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
               {fuelInfo?.label ?? properties.fuelType}
               {properties.reportedAt && (
-                <span className="ml-1.5 text-gray-400/70">
+                <span className="ml-1.5 text-gray-500/80 dark:text-gray-400/70">
                   · {timeAgo(properties.reportedAt, t)}
                 </span>
               )}
             </p>
             {/* Conversion info */}
             {isConverted && properties.originalPrice != null && (
-              <p className="mt-1.5 border-t border-gray-200/60 pt-1.5 text-[9px] leading-tight text-gray-400 dark:border-gray-700">
+              <p className="mt-1.5 border-t border-gray-200/60 pt-1.5 text-[9px] leading-tight text-gray-500 dark:border-gray-700 dark:text-gray-300">
                 {properties.originalPrice.toFixed(CURRENCIES.find((c) => c.code === properties.originalCurrency)?.decimals ?? 3)} {symbolFor(properties.originalCurrency!)}/L
                 {conversionNote && (
                   <span className="ml-1">· {conversionNote}</span>
@@ -136,13 +136,15 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
           </div>
         ) : (
           <div className="mt-2 rounded-lg bg-gray-50 px-3 py-2.5 text-center dark:bg-gray-800">
-            <span className="text-[11px] text-gray-400">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
               {t("popup.noPrice")} {fuelInfo?.label ?? properties.fuelType}
             </span>
           </div>
         )}
 
-        {/* Action row */}
+        {/* Action row — primary Navigate keeps its label; the two secondary
+            actions are icon-only (label moved to aria-label/title) so nothing
+            wraps or clips inside the 280px popup across locales. */}
         <div className="mt-2 flex items-stretch gap-1.5">
           {/* Navigate — Google Maps directions; prefer address for better routing */}
           <a
@@ -153,9 +155,9 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
             }`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-500 px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-600"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-2 py-2 text-[11px] font-medium text-white transition-colors hover:bg-blue-700"
           >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+            <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
             </svg>
             {t("popup.navigate")}
@@ -166,25 +168,34 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
             href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-2 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            aria-label={t("popup.showOnMap")}
+            title={t("popup.showOnMap")}
+            className="flex shrink-0 items-center justify-center rounded-lg bg-gray-100 px-3 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
             </svg>
-            {t("popup.showOnMap")}
           </a>
 
-          {/* Share — Web Share API with clipboard fallback */}
+          {/* Share — Web Share API with clipboard fallback; copied state swaps
+              the icon to a checkmark and is announced via aria-label/title. */}
           <button
             type="button"
             onClick={handleShare}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-gray-100 px-2 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+            aria-label={copied ? t("popup.copied") : t("popup.share")}
+            title={copied ? t("popup.copied") : t("popup.share")}
+            className="flex shrink-0 items-center justify-center rounded-lg bg-gray-100 px-3 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
-            </svg>
-            {copied ? t("popup.copied") : t("popup.share")}
+            {copied ? (
+              <svg className="h-4 w-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+              </svg>
+            )}
           </button>
         </div>
       </div>
