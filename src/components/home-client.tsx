@@ -41,7 +41,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const selectedStationCoordsRef = useRef<[number, number] | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
-  const [maxDetour, setMaxDetour] = useState<number | null>(null);
+  // Default to a 5-minute max detour so users see only worthwhile stops; they
+  // can widen it (up to "no limit") via the slider.
+  const [maxDetour, setMaxDetour] = useState<number | null>(5);
   const [detourBasis, setDetourBasis] = useState<DetourBasis>("selected");
   const [stationsLoading, setStationsLoading] = useState(false);
   const [stationsError, setStationsError] = useState(false);
@@ -94,7 +96,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleFuelChange = useCallback((fuel: FuelType) => {
     setSelectedFuel(fuel);
     setMaxPrice(null);
-    setMaxDetour(null);
+    setMaxDetour(5);
   }, []);
 
   const handleMapMove = useCallback((newCenter: [number, number]) => {
