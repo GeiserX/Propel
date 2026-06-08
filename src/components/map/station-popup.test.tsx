@@ -82,4 +82,32 @@ describe("StationPopup", () => {
     expect(screen.getByText(/popup\.noPrice/)).toBeInTheDocument();
     expect(screen.queryByText("€/L")).not.toBeInTheDocument();
   });
+
+  it("renders the action row: directions, show-on-map (pin), copy link, share", () => {
+    render(<StationPopup station={makeStation()} onClose={() => {}} />);
+    // Navigate is a labelled link to Google Maps directions.
+    const nav = screen.getByText("popup.navigate").closest("a")!;
+    expect(nav).toHaveAttribute("href", expect.stringContaining("google.com/maps/dir/"));
+    // Show-on-map is an icon-only link to the Google Maps pin (search) endpoint.
+    const showOnMap = screen.getByLabelText("popup.showOnMap");
+    expect(showOnMap).toHaveAttribute("href", expect.stringContaining("google.com/maps/search/"));
+    expect(showOnMap.getAttribute("href")).toContain("query=40.4168");
+    // The new copy-link and share buttons exist (icon-only, aria-labelled).
+    expect(screen.getByLabelText("popup.copyLink")).toBeInTheDocument();
+    expect(screen.getByLabelText("popup.share")).toBeInTheDocument();
+  });
+
+  it("copy-link writes the station deep-link to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    // jsdom has no real origin/pathname assumptions; deep-link uses window.location.
+    render(<StationPopup station={makeStation({ externalId: "4710", country: "ES" })} onClose={() => {}} />);
+    (screen.getByLabelText("popup.copyLink") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = writeText.mock.calls[0][0] as string;
+    expect(copied).toContain("station=ES%3A4710");
+    expect(copied).toContain("lat=40.4168");
+    expect(copied).toContain("lng=-3.7038");
+    vi.unstubAllGlobals();
+  });
 });
