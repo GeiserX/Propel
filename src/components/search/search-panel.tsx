@@ -10,7 +10,7 @@ import { StationResults } from "./station-results";
 import { useI18n } from "@/lib/i18n";
 import { projectOntoRoute } from "@/lib/route-geometry";
 import { formatDistance, formatDuration } from "@/lib/format";
-import { shareOrCopy } from "@/lib/share";
+import { shareOrCopy, copyToClipboard } from "@/lib/share";
 import { buildRouteQuery } from "@/lib/share-url";
 
 type Phase = "search" | "destination" | "route";
@@ -504,10 +504,12 @@ export function SearchPanel({
     window.history.replaceState(null, "", `${window.location.pathname}?${qs}`);
   }, [routes, origin, destination, waypoints, selectedFuel]);
 
-  // "Share route" button — builds the absolute route URL and shares/copies it.
+  // Share/copy the current route. The absolute deep-link URL is built once and
+  // reused by both the Share (native sheet) and Copy (clipboard-direct) actions.
   const [shareCopied, setShareCopied] = useState(false);
-  const handleShareRoute = useCallback(async () => {
-    if (!origin || !destination) return;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const routeShareUrl = useCallback((): string | null => {
+    if (!origin || !destination) return null;
     const via = waypoints
       .filter((wp) => wp.location != null)
       .map((wp) => ({ lng: wp.location!.coordinates[0], lat: wp.location!.coordinates[1] }));
@@ -517,7 +519,12 @@ export function SearchPanel({
       via,
       fuel: selectedFuel ?? "",
     }).toString();
-    const url = `${window.location.origin}${window.location.pathname}?${qs}`;
+    return `${window.location.origin}${window.location.pathname}?${qs}`;
+  }, [origin, destination, waypoints, selectedFuel]);
+
+  const handleShareRoute = useCallback(async () => {
+    const url = routeShareUrl();
+    if (!url) return;
     // Share only { title, url } — a `text` field is prepended to the URL by
     // many native share targets, which appended a redundant "Pumperly route".
     const outcome = await shareOrCopy({ title: t("share.routeTitle"), url });
@@ -525,7 +532,15 @@ export function SearchPanel({
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
     }
-  }, [origin, destination, waypoints, selectedFuel, t]);
+  }, [routeShareUrl, t]);
+
+  const handleCopyRoute = useCallback(async () => {
+    const url = routeShareUrl();
+    if (url && (await copyToClipboard(url))) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  }, [routeShareUrl]);
 
   const showDest = phase === "destination" || phase === "route";
 
@@ -843,23 +858,41 @@ export function SearchPanel({
               onSelectRoute={onSelectRoute}
             />
           )}
-          {/* Share route — builds the deep-link URL and opens the share sheet / copies it */}
+          {/* Share / Copy route — both build the same deep-link URL; Share opens
+              the native sheet (clipboard fallback), Copy writes it directly. */}
           {origin && destination && (
-            <button
-              onClick={handleShareRoute}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-black/[0.05] px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:border-white/[0.06] dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
-            >
-              {shareCopied ? (
-                <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
-              ) : (
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
-                </svg>
-              )}
-              {shareCopied ? t("share.copied") : t("share.shareRoute")}
-            </button>
+            <div className="flex border-t border-black/[0.05] dark:border-white/[0.06]">
+              <button
+                onClick={handleShareRoute}
+                className="flex flex-1 items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+              >
+                {shareCopied ? (
+                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+                  </svg>
+                )}
+                {shareCopied ? t("share.copied") : t("share.shareRoute")}
+              </button>
+              <button
+                onClick={handleCopyRoute}
+                className="flex flex-1 items-center justify-center gap-1.5 border-l border-black/[0.05] px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:border-white/[0.06] dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+              >
+                {linkCopied ? (
+                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                  </svg>
+                )}
+                {linkCopied ? t("share.copied") : t("popup.copyLink")}
+              </button>
+            </div>
           )}
         </div>
       )}

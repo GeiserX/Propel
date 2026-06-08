@@ -12,10 +12,14 @@ vi.mock("@/lib/currency", () => ({
 vi.mock("./route-alternatives", () => ({ RouteAlternatives: () => null }));
 vi.mock("./station-results", () => ({ StationResults: () => null }));
 
-// Spy on shareOrCopy so the "Share route" button can be asserted without touching
-// the Web Share API.
+// Spy on shareOrCopy + copyToClipboard so the Share/Copy route buttons can be
+// asserted without touching the Web Share / Clipboard APIs.
 const shareOrCopy = vi.fn().mockResolvedValue("copied");
-vi.mock("@/lib/share", () => ({ shareOrCopy: (data: unknown) => shareOrCopy(data) }));
+const copyToClipboard = vi.fn().mockResolvedValue(true);
+vi.mock("@/lib/share", () => ({
+  shareOrCopy: (data: unknown) => shareOrCopy(data),
+  copyToClipboard: (text: string) => copyToClipboard(text),
+}));
 
 const ROUTE: Route = {
   geometry: { type: "LineString", coordinates: [[-3.7, 40.4], [-0.37, 39.47]] },
@@ -117,6 +121,7 @@ describe("SearchPanel — Share route button", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
     shareOrCopy.mockClear();
+    copyToClipboard.mockClear();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -149,6 +154,37 @@ describe("SearchPanel — Share route button", () => {
     expect(arg.url).toContain("fuel=B7");
 
     // After a copy, the button flips to the copied label.
+    await waitFor(() => expect(screen.getByText("share.copied")).toBeInTheDocument());
+  });
+
+  it("copy-route button copies the same route URL directly to the clipboard", async () => {
+    const user = userEvent.setup();
+    render(
+      <SearchPanel
+        mapCenter={[-3.7, 40.4]}
+        onFlyTo={() => {}}
+        onRoute={() => {}}
+        onClearRoute={() => {}}
+        routes={[ROUTE]}
+        primaryRouteIndex={0}
+        isLoading={false}
+        initialRoute={INITIAL_ROUTE}
+        selectedFuel="B7"
+      />,
+    );
+
+    // The Copy button (popup.copyLink label) sits next to Share route.
+    const copyBtn = await screen.findByText("popup.copyLink");
+    await user.click(copyBtn);
+
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledTimes(1));
+    const url = copyToClipboard.mock.calls[0][0] as string;
+    expect(url).toContain("from=40.41672%2C-3.70379");
+    expect(url).toContain("to=39.46975%2C-0.37739");
+    expect(url).toContain("fuel=B7");
+    // Share sheet was NOT invoked for a direct copy.
+    expect(shareOrCopy).not.toHaveBeenCalled();
+    // Button flips to the copied label.
     await waitFor(() => expect(screen.getByText("share.copied")).toBeInTheDocument());
   });
 });
