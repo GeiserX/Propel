@@ -37,7 +37,12 @@ function legacyCopy(text: string): boolean {
   }
 }
 
-async function copyToClipboard(text: string): Promise<boolean> {
+/**
+ * Copy text to the clipboard: native Clipboard API first, legacy execCommand
+ * fallback. Returns whether the copy succeeded. Use directly for a "copy link"
+ * action (no share sheet).
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);

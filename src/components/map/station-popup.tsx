@@ -6,7 +6,7 @@ import type { StationGeoJSON } from "@/types/station";
 import { FUEL_TYPE_MAP } from "@/types/fuel";
 import { useI18n } from "@/lib/i18n";
 import { useCurrency, CURRENCIES } from "@/lib/currency";
-import { shareOrCopy } from "@/lib/share";
+import { shareOrCopy, copyToClipboard } from "@/lib/share";
 import { buildStationQuery } from "@/lib/share-url";
 
 interface StationPopupProps {
@@ -33,6 +33,7 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
   const { t } = useI18n();
   const { decimals: userDecimals, rateInfo } = useCurrency();
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const { properties, geometry } = station;
   // `properties.fuelType` is a raw string; the cast narrows it to the map key
   // type for the lookup. `.get()` returns undefined for unknown codes, which is
@@ -50,30 +51,34 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
   const lat = geometry.coordinates[1];
   const lng = geometry.coordinates[0];
 
-  // Compact price label reused in the share payload's text.
-  const priceLabel =
-    properties.price != null
-      ? `${properties.price.toFixed(displayDecimals)} ${displaySymbol}/L`
-      : t("popup.noPrice");
-
-  async function handleShare() {
+  // Absolute deep-link to this station (?station=CC:extId&lat&lng on the
+  // current locale path) — shared and copied by the action buttons below.
+  function shareUrl(): string {
     const sp = buildStationQuery({
       country: properties.country ?? "",
       externalId: properties.externalId ?? "",
       lat,
       lng,
     });
-    const url = `${window.location.origin}${window.location.pathname}?${sp}`;
-    const outcome = await shareOrCopy({
-      title: properties.brand ?? "Pumperly",
-      text: `${properties.brand ?? ""} — ${priceLabel}`,
-      url,
-    });
+    return `${window.location.origin}${window.location.pathname}?${sp}`;
+  }
+
+  async function handleShare() {
+    // Share only { title, url }: a `text` field gets prepended to the URL by
+    // many native share targets, cluttering the shared link.
+    const outcome = await shareOrCopy({ title: properties.brand ?? "Pumperly", url: shareUrl() });
     if (outcome === "copied") {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
     // "shared" needs no UI; "dismissed"/"failed" are swallowed silently.
+  }
+
+  async function handleCopyLink() {
+    if (await copyToClipboard(shareUrl())) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
   }
 
   return (
@@ -177,6 +182,26 @@ export function StationPopup({ station, onClose }: StationPopupProps) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
             </svg>
           </a>
+
+          {/* Copy link — copies the station deep-link directly to the clipboard
+              (no share sheet); icon swaps to a checkmark on success. */}
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            aria-label={linkCopied ? t("popup.copied") : t("popup.copyLink")}
+            title={linkCopied ? t("popup.copied") : t("popup.copyLink")}
+            className="flex shrink-0 items-center justify-center rounded-lg bg-gray-100 px-3 py-2 text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+          >
+            {linkCopied ? (
+              <svg className="h-4 w-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+              </svg>
+            )}
+          </button>
 
           {/* Share — Web Share API with clipboard fallback; copied state swaps
               the icon to a checkmark and is announced via aria-label/title. */}

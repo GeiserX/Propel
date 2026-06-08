@@ -518,7 +518,9 @@ export function SearchPanel({
       fuel: selectedFuel ?? "",
     }).toString();
     const url = `${window.location.origin}${window.location.pathname}?${qs}`;
-    const outcome = await shareOrCopy({ title: t("share.routeTitle"), text: t("share.routeTitle"), url });
+    // Share only { title, url } — a `text` field is prepended to the URL by
+    // many native share targets, which appended a redundant "Pumperly route".
+    const outcome = await shareOrCopy({ title: t("share.routeTitle"), url });
     if (outcome === "copied") {
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2000);
