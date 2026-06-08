@@ -106,14 +106,16 @@ export const MapView = forwardRef<MapRef, MapViewProps>(function MapView(
   const rawPrimaryStations = (routes && corridorPerRoute[primaryRouteIndex]) || EMPTY_COLLECTION;
   const convertedPrimaryStations = useConvertedStations(rawPrimaryStations);
 
-  // Report primary corridor stations to parent for station list
+  // Report stations to parent. With a route active, lift the primary corridor
+  // stations (consumed for the sidebar list + detour stream). With NO route,
+  // lift the on-screen bbox stations so the parent can resolve a station-only
+  // deep-link (?station=CC:extId&lat&lng) against what's actually loaded.
+  // Bbox features carry no `routeFraction`, so the detour stream and the
+  // SearchPanel station list (both gated on `routeFraction != null` / an active
+  // route) ignore them — this stays a no-op for the normal no-deep-link flow.
   useEffect(() => {
-    if (!routes) {
-      onPrimaryStationsChange?.(EMPTY_COLLECTION);
-      return;
-    }
-    onPrimaryStationsChange?.(convertedPrimaryStations);
-  }, [convertedPrimaryStations, routes, onPrimaryStationsChange]);
+    onPrimaryStationsChange?.(routes ? convertedPrimaryStations : displayStations);
+  }, [convertedPrimaryStations, displayStations, routes, onPrimaryStationsChange]);
 
   // Fetch corridor stations for ALL routes in parallel
   const fetchAllRouteStations = useCallback(

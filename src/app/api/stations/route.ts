@@ -29,6 +29,8 @@ const querySchema = z.object({
 
 interface StationRow {
   id: string;
+  external_id: string;
+  country: string;
   name: string;
   brand: string | null;
   address: string;
@@ -67,6 +69,8 @@ export async function GET(request: NextRequest) {
           `
           SELECT
             s.id,
+            s.external_id AS external_id,
+            s.country AS country,
             s.name,
             s.brand,
             s.address,
@@ -94,6 +98,8 @@ export async function GET(request: NextRequest) {
           `
           SELECT
             s.id,
+            s.external_id AS external_id,
+            s.country AS country,
             s.name,
             s.brand,
             s.address,
@@ -133,6 +139,8 @@ export async function GET(request: NextRequest) {
       },
       properties: {
         id: row.id,
+        externalId: row.external_id,
+        country: row.country,
         name: row.name,
         brand: row.brand,
         address: row.address,

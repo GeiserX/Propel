@@ -39,6 +39,10 @@ export interface StationGeoJSON {
   };
   properties: {
     id: string;
+    /** Durable station identity, always emitted by the server (survives scraper re-imports, unlike `id`). Optional in the type only so existing client-built fixtures stay valid. */
+    externalId?: string;
+    /** ISO 3166-1 alpha-2 country code, always emitted by the server. */
+    country?: string;
     name: string;
     brand: string | null;
     address: string;

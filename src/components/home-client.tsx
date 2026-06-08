@@ -12,6 +12,8 @@ import { Navbar } from "@/components/nav/navbar";
 import { MapView } from "@/components/map/map-view";
 import { SearchPanel } from "@/components/search/search-panel";
 import { useDetourStream } from "@/lib/use-detour-stream";
+import { parseStationParams, parseRouteParams, buildStationQuery } from "@/lib/share-url";
+import { fuelTypeEnum } from "@/types/fuel";
 
 interface Props {
   defaultFuel: string;
@@ -23,8 +25,47 @@ interface Props {
 
 type GeoState = "idle" | "loading" | "active" | "denied";
 
+interface InitialRoute { from: [number, number]; to: [number, number]; via: [number, number][] }
+interface DeepLinkStation { country: string | null; externalId: string | null; lat: number | null; lng: number | null }
+
+/**
+ * Parse the shareable deep-link from the current URL exactly once, at mount. Read
+ * straight from `window.location.search` (not `useSearchParams()`) so a single
+ * one-shot read needs no Suspense boundary. Route params win over station params
+ * (they are mutually exclusive by construction). SSR-safe: returns empty on the
+ * server. Consumed by lazy `useState` initializers so no setState-in-effect is
+ * needed — keeping this purely additive to the normal (no-params) flow.
+ */
+function readDeepLink(): { fuel: FuelType | null; route: InitialRoute | null; station: DeepLinkStation | null } {
+  const empty = { fuel: null, route: null, station: null };
+  if (typeof window === "undefined") return empty;
+  const sp = new URLSearchParams(window.location.search);
+
+  const route = parseRouteParams(sp);
+  if (route) {
+    const parsedFuel = fuelTypeEnum.safeParse(route.fuel);
+    return {
+      fuel: parsedFuel.success ? parsedFuel.data : null,
+      route: {
+        from: [route.from.lng, route.from.lat],
+        to: [route.to.lng, route.to.lat],
+        via: route.via.map((v) => [v.lng, v.lat] as [number, number]),
+      },
+      station: null,
+    };
+  }
+
+  const station = parseStationParams(sp);
+  if (station && station.lat != null && station.lng != null) {
+    return { fuel: null, route: null, station };
+  }
+  return empty;
+}
+
 export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale }: Props) {
-  const [selectedFuel, setSelectedFuel] = useState<FuelType>(defaultFuel as FuelType);
+  // One-shot deep-link parse (mount only). Lazy initializer keeps it off re-renders.
+  const [deepLink] = useState(readDeepLink);
+  const [selectedFuel, setSelectedFuel] = useState<FuelType>(deepLink.fuel ?? (defaultFuel as FuelType));
   const [corridorKm, setCorridorKm] = useState(5);
   const [routeState, setRouteState] = useState<RouteState | null>(null);
   // Station-leg routes: when a user clicks a station, we recalculate the route
@@ -40,6 +81,25 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const selectedStationCoordsRef = useRef<[number, number] | null>(null);
+
+  // Deep-link route is handed to SearchPanel, which replicates its normal route
+  // calculation. The pending station (if any) is held in a ref and selected once
+  // matching features load.
+  const initialRoute = deepLink.route;
+  const deepLinkStationRef = useRef<DeepLinkStation | null>(deepLink.station);
+  const deepLinkResolvedRef = useRef(false);
+  // True while a station deep-link is still pending resolution. The station-WRITE
+  // effect checks this so it does NOT strip ?station off the URL on mount before
+  // the resolve effect has matched the deep-linked station against loaded features.
+  const stationDeepLinkPendingRef = useRef(deepLink.station != null);
+  // True while an initial route deep-link is still resolving (route fetch is
+  // async, and may fail). Suppresses the bare-URL strip so ?from&to&via&fuel
+  // survive mount until either the route settles or the user changes endpoints.
+  const routeDeepLinkPendingRef = useRef(deepLink.route != null);
+  // A deep link was present at load — used to suppress auto-geolocation so the
+  // shared target (station or route) wins the initial camera, not the user's
+  // current location.
+  const hasDeepLink = deepLink.route != null || deepLink.station != null;
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   // Default to a 5-minute max detour so users see only worthwhile stops; they
   // can widen it (up to "no limit") via the slider.
@@ -64,6 +124,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     return () => navigator.geolocation.clearWatch(watchId);
   }, [geoState]);
 
+  // Deep-link camera move. NOTE: mapRef is only assigned inside MapView's
+  // MapLibre `onLoad` (which runs AFTER this parent mounts), so a bare mount
+  // effect would flyTo a still-null ref and silently no-op. Instead we fly from
+  // the map-ready path (handleMapReady), which fires once the map ref exists.
+  // The actual popup selection happens later, when matching features load.
+
   const handleGeolocate = useCallback(() => {
     if (!navigator.geolocation) { setGeoState("denied"); return; }
     setGeoState("loading");
@@ -79,8 +145,21 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     );
   }, []);
 
-  // Auto-geolocate when map is ready (prompts if permission not yet decided)
+  // Called once the map ref is live (MapLibre onLoad). A deep link always wins
+  // the initial camera, so we move there and skip auto-geolocation entirely:
+  //   - station deep-link: flyTo the shared coords here (the popup opens later,
+  //     once matching features stream in and the resolve effect matches);
+  //   - route deep-link: SearchPanel's prefill triggers the route fetch, which
+  //     fitBounds the result — nothing to do here beyond not stealing the camera.
+  // Without a deep link, auto-geolocate as before (prompts if not yet decided).
   const handleMapReady = useCallback(() => {
+    if (hasDeepLink) {
+      const target = deepLinkStationRef.current;
+      if (target && target.lat != null && target.lng != null) {
+        mapRef.current?.flyTo({ center: [target.lng, target.lat], zoom: 14, duration: 1500 });
+      }
+      return;
+    }
     if (!navigator.geolocation) return;
     if (navigator.permissions?.query) {
       navigator.permissions.query({ name: "geolocation" }).then((perm) => {
@@ -91,7 +170,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
     } else {
       handleGeolocate();
     }
-  }, [handleGeolocate]);
+  }, [handleGeolocate, hasDeepLink]);
 
   const handleFuelChange = useCallback((fuel: FuelType) => {
     setSelectedFuel(fuel);
@@ -223,6 +302,9 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handleClearRoute = useCallback(() => {
     if (routeAbortRef.current) routeAbortRef.current.abort();
     if (stationLegAbortRef.current) stationLegAbortRef.current.abort();
+    // A clear is a user action that changes origin/destination — the initial
+    // route deep-link no longer owns the URL, so stop suppressing the strip.
+    routeDeepLinkPendingRef.current = false;
     setRouteState(null);
     setStationLegRoutes(null);
     setIsRouteLoading(false);
@@ -277,6 +359,108 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   const handlePrimaryStationsChange = useCallback((stations: StationsGeoJSONCollection) => {
     setPrimaryStations(stations);
   }, []);
+
+  // Resolve a pending deep-link station once matching features are present.
+  // Match priority: externalId+country (durable identity), else nearest feature
+  // within ~50m of the shared lat/lng. Runs at most once (deepLinkResolvedRef).
+  // Note: station-only deep links open without an active route, so the candidate
+  // features come from whatever station collection is lifted here; we always
+  // flyTo on mount regardless, so the user lands on the spot even if no feature
+  // matches yet.
+  useEffect(() => {
+    if (deepLinkResolvedRef.current) return;
+    const target = deepLinkStationRef.current;
+    if (!target) return;
+    const features = primaryStations.features;
+    if (features.length === 0) return;
+
+    let match: StationGeoJSON | undefined;
+    if (target.externalId != null && target.country != null) {
+      const wantCountry = target.country.toUpperCase();
+      match = features.find(
+        (f) => f.properties.externalId === target.externalId && (f.properties.country ?? "").toUpperCase() === wantCountry,
+      );
+    }
+    if (!match && target.lat != null && target.lng != null) {
+      // Nearest within ~50m. Equirectangular approximation is fine at this scale.
+      const R = 6371000;
+      const latRad = (target.lat * Math.PI) / 180;
+      let bestDist = Infinity;
+      for (const f of features) {
+        const [lng, lat] = f.geometry.coordinates;
+        const dx = ((lng - target.lng) * Math.PI / 180) * Math.cos(latRad) * R;
+        const dy = ((lat - target.lat) * Math.PI / 180) * R;
+        const dist = Math.hypot(dx, dy);
+        if (dist < bestDist) { bestDist = dist; match = f; }
+      }
+      if (bestDist > 50) match = undefined;
+    }
+
+    if (match) {
+      deepLinkResolvedRef.current = true;
+      deepLinkStationRef.current = null;
+      // NOTE: do NOT clear stationDeepLinkPendingRef here. Effects run top-to-
+      // bottom within a commit, so the station-WRITE effect below would see the
+      // not-yet-applied selectedStationId as null AND the just-cleared flag, and
+      // strip the URL. Instead, the WRITE effect clears the flag in its
+      // station-selected branch once setSelectedStationId has actually applied.
+      selectedStationCoordsRef.current = match.geometry.coordinates;
+      setSelectedStationId(match.properties.id);
+    }
+  }, [primaryStations]);
+
+  // Once an initial route deep-link resolves to a real route, SearchPanel's
+  // route-write effect takes over the URL and the station-WRITE effect's
+  // `if (routeState) return` guard prevents any strip — so we can stop
+  // suppressing. If routing FAILS (routeState stays null), the suppression
+  // stays in place and the route params survive until the user changes
+  // origin/destination (which routes through handleClearRoute).
+  useEffect(() => {
+    if (routeState) routeDeepLinkPendingRef.current = false;
+  }, [routeState]);
+
+  // ---------------------------------------------------------------------------
+  // Deep-link write — station param
+  // ---------------------------------------------------------------------------
+  // Route and station params are MUTUALLY EXCLUSIVE in the URL: while a route is
+  // active the SearchPanel owns the URL (writes from/to/via/fuel), so this writer
+  // stands down (routeState != null). With no route:
+  //   - a resolvable selected station -> ?station=CC:extId&lat&lng
+  //   - nothing selected               -> strip params back to the bare path
+  // We only write the station param when the selected feature is resolvable here
+  // (it carries externalId+country); otherwise we leave the URL untouched rather
+  // than emit a partial link. The flyTo/selection UX is unaffected either way.
+  //
+  // CRITICAL — do NOT strip params on mount before a deep-link resolves: on the
+  // first render selectedStationId is null and routeState is null (both resolve
+  // asynchronously — station via on-screen features, route via /api/route), so an
+  // unguarded strip would wipe ?station / ?from&to&via&fuel before they ever take
+  // effect (and lose them forever if /api/route fails). We only strip once neither
+  // a station nor a route deep-link is still pending — i.e. on a genuine user
+  // deselect after the initial resolve, not on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (routeState) return; // route owns the URL
+    const { pathname } = window.location;
+    const hasParams = window.location.search.length > 0;
+
+    if (!selectedStationId) {
+      const deepLinkPending = stationDeepLinkPendingRef.current || routeDeepLinkPendingRef.current;
+      if (hasParams && !deepLinkPending) window.history.replaceState(null, "", pathname);
+      return;
+    }
+    // A station got selected — the station deep-link (if any) is now moot.
+    stationDeepLinkPendingRef.current = false;
+
+    const feature = primaryStations.features.find((f) => f.properties.id === selectedStationId);
+    const extId = feature?.properties.externalId;
+    const country = feature?.properties.country;
+    if (feature && extId != null && country != null) {
+      const [lng, lat] = feature.geometry.coordinates;
+      const qs = buildStationQuery({ country, externalId: extId, lat, lng }).toString();
+      window.history.replaceState(null, "", `${pathname}?${qs}`);
+    }
+  }, [selectedStationId, routeState, primaryStations]);
 
   // Streaming Valhalla-based detour calculation — results appear per-station
   const { detourMap, detoursLoading } = useDetourStream({ primaryStations, routeState, detourBasis });
@@ -354,6 +538,8 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onDetourBasisChange={setDetourBasis}
           corridorKm={corridorKm}
           onCorridorKmChange={setCorridorKm}
+          initialRoute={initialRoute}
+          selectedFuel={selectedFuel}
         />
       </div>
     </main>
