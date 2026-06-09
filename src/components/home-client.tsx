@@ -100,6 +100,11 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   // shared target (station or route) wins the initial camera, not the user's
   // current location.
   const hasDeepLink = deepLink.route != null || deepLink.station != null;
+  // Holds a route bbox to fit once the map is ready. A deep-link route fetch can
+  // resolve BEFORE MapLibre's onLoad assigns mapRef, so fitBounds would no-op and
+  // the map would stay at the default view. We stash the bbox and apply it from
+  // handleMapReady when the ref is live.
+  const pendingRouteFitRef = useRef<[number, number, number, number] | null>(null);
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
   // Default to a 5-minute max detour so users see only worthwhile stops; they
   // can widen it (up to "no limit") via the slider.
@@ -149,11 +154,20 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
   // the initial camera, so we move there and skip auto-geolocation entirely:
   //   - station deep-link: flyTo the shared coords here (the popup opens later,
   //     once matching features stream in and the resolve effect matches);
-  //   - route deep-link: SearchPanel's prefill triggers the route fetch, which
-  //     fitBounds the result — nothing to do here beyond not stealing the camera.
+  //   - route deep-link: the route fetch may have resolved before the map was
+  //     ready, leaving its fitBounds a no-op; apply the stashed bbox now so the
+  //     camera frames the shared route instead of the default country view.
   // Without a deep link, auto-geolocate as before (prompts if not yet decided).
   const handleMapReady = useCallback(() => {
     if (hasDeepLink) {
+      const pendingFit = pendingRouteFitRef.current;
+      if (pendingFit) {
+        pendingRouteFitRef.current = null;
+        mapRef.current?.fitBounds(
+          [[pendingFit[0], pendingFit[1]], [pendingFit[2], pendingFit[3]]],
+          { padding: 60, duration: 1000 },
+        );
+      }
       const target = deepLinkStationRef.current;
       if (target && target.lat != null && target.lng != null) {
         mapRef.current?.flyTo({ center: [target.lng, target.lat], zoom: 14, duration: 1500 });
@@ -249,13 +263,18 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           }
         } else {
           const primary = data.routes[0];
-          mapRef.current?.fitBounds(
-            [
-              [primary.bbox[0], primary.bbox[1]],
-              [primary.bbox[2], primary.bbox[3]],
-            ],
-            { padding: 60, duration: 1000 },
-          );
+          if (mapRef.current) {
+            mapRef.current.fitBounds(
+              [
+                [primary.bbox[0], primary.bbox[1]],
+                [primary.bbox[2], primary.bbox[3]],
+              ],
+              { padding: 60, duration: 1000 },
+            );
+          } else {
+            // Map not loaded yet (deep-link route resolved first) — fit once ready.
+            pendingRouteFitRef.current = primary.bbox;
+          }
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
