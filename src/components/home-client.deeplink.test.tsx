@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
-import { forwardRef, useEffect, useImperativeHandle } from "react";
+import { forwardRef, useEffect } from "react";
 import type { MapRef } from "react-map-gl/maplibre";
 import type { StationsGeoJSONCollection } from "@/types/station";
 import { HomeClient } from "./home-client";
@@ -14,6 +14,10 @@ let searchPanelProps: Record<string, unknown> = {};
 // mimicking the real MapView (corridor stations with a route, on-screen bbox
 // stations without). Set per-test; the mock lifts it once the map is "ready".
 let liftedStations: StationsGeoJSONCollection = { type: "FeatureCollection", features: [] };
+// When set, the mock MapView exposes onMapReady here instead of firing it on
+// commit, so a test can simulate the map becoming ready AFTER a route resolves.
+let deferredMapReady: (() => void) | null = null;
+let deferMapReady = false;
 
 // Pass-through providers + no-op navbar / detour hook.
 vi.mock("@/lib/theme", () => ({ ThemeProvider: ({ children }: { children: React.ReactNode }) => children }));
@@ -28,19 +32,32 @@ vi.mock("@/lib/use-detour-stream", () => ({ useDetourStream: () => ({ detourMap:
 // MapView is a forwardRef. The REAL MapView assigns its MapRef inside MapLibre's
 // async `onLoad`, then calls `onMapReady()` and lifts on-screen stations via
 // `onPrimaryStationsChange`. We replicate that ordering from a post-commit effect
-// (ref already wired via useImperativeHandle) so the deep-link camera move — now
-// triggered from the map-ready path, not a bare mount effect — can be asserted,
-// and so the parent can resolve a station deep-link against the lifted features.
+// — wiring the ref at the same moment onMapReady fires — so the deep-link camera
+// move (now triggered from the map-ready path, not a bare mount effect) can be
+// asserted, and so the parent can resolve a station deep-link against the lifted
+// features.
 vi.mock("@/components/map/map-view", () => ({
   MapView: forwardRef<MapRef, Record<string, unknown>>(function MockMapView(props, ref) {
-    useImperativeHandle(ref, () => ({ flyTo, fitBounds } as unknown as MapRef));
     const onMapReady = props.onMapReady as (() => void) | undefined;
     const onPrimaryStationsChange = props.onPrimaryStationsChange as
       | ((s: StationsGeoJSONCollection) => void)
       | undefined;
-    useEffect(() => {
+    // The REAL MapView assigns mapRef inside MapLibre's onLoad — i.e. the ref
+    // only becomes non-null at the moment the map is ready. Model that: wire the
+    // ref + fire onMapReady together. When deferred, neither happens until the
+    // test calls deferredMapReady(), reproducing "route resolves before map ready".
+    const wireReady = () => {
+      (ref as React.MutableRefObject<MapRef | null>).current = { flyTo, fitBounds } as unknown as MapRef;
       onMapReady?.();
+    };
+    useEffect(() => {
+      if (deferMapReady) {
+        deferredMapReady = wireReady;
+      } else {
+        wireReady();
+      }
       onPrimaryStationsChange?.(liftedStations);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [onMapReady, onPrimaryStationsChange]);
     return null;
   }),
@@ -97,6 +114,8 @@ describe("HomeClient — deep-link read on load", () => {
     fitBounds.mockClear();
     searchPanelProps = {};
     liftedStations = { type: "FeatureCollection", features: [] };
+    deferredMapReady = null;
+    deferMapReady = false;
   });
   afterEach(() => {
     window.history.replaceState(null, "", "/");
@@ -204,5 +223,49 @@ describe("HomeClient — deep-link read on load", () => {
     expect(searchPanelProps.initialRoute).toBeNull();
     expect(flyTo).not.toHaveBeenCalled();
     expect(searchPanelProps.selectedFuel).toBe("E5");
+  });
+
+  // A route bbox (Murcia-ish) the mocked /api/route returns.
+  const ROUTE_BBOX: [number, number, number, number] = [-1.13054, 37.96142, -1.08531, 37.99238];
+  function mockRouteFetch() {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ routes: [{ geometry: { type: "LineString", coordinates: [] }, distance: 5, duration: 300, bbox: ROUTE_BBOX }] }),
+    })));
+  }
+
+  it("fits the map to a deep-link route once it resolves (map already ready)", async () => {
+    mockRouteFetch();
+    window.history.replaceState(null, "", "/es?from=37.96142,-1.08531&to=37.99238,-1.13054&fuel=B7");
+    renderHome();
+
+    // Drive the route fetch the way SearchPanel's prefill would (onRoute = handleRoute).
+    const onRoute = searchPanelProps.onRoute as (o: [number, number], d: [number, number]) => void;
+    onRoute([-1.08531, 37.96142], [-1.13054, 37.99238]);
+
+    // The camera frames the route bbox — not the default country view.
+    await waitFor(() => expect(fitBounds).toHaveBeenCalled());
+    const [bounds] = fitBounds.mock.calls.at(-1)!;
+    expect(bounds).toEqual([[ROUTE_BBOX[0], ROUTE_BBOX[1]], [ROUTE_BBOX[2], ROUTE_BBOX[3]]]);
+  });
+
+  it("fits a deep-link route even if it resolves BEFORE the map is ready (the bug)", async () => {
+    mockRouteFetch();
+    deferMapReady = true; // map ref/onLoad lands AFTER the route fetch
+    window.history.replaceState(null, "", "/es?from=37.96142,-1.08531&to=37.99238,-1.13054&fuel=B7");
+    renderHome();
+
+    const onRoute = searchPanelProps.onRoute as (o: [number, number], d: [number, number]) => void;
+    onRoute([-1.08531, 37.96142], [-1.13054, 37.99238]);
+
+    // Route resolved while the map was not ready → fitBounds was stashed, not lost.
+    await waitFor(() => expect(searchPanelProps.routes).not.toBeNull());
+    expect(fitBounds).not.toHaveBeenCalled();
+
+    // Map becomes ready → the stashed route bbox is applied.
+    deferredMapReady?.();
+    await waitFor(() => expect(fitBounds).toHaveBeenCalled());
+    const [bounds] = fitBounds.mock.calls.at(-1)!;
+    expect(bounds).toEqual([[ROUTE_BBOX[0], ROUTE_BBOX[1]], [ROUTE_BBOX[2], ROUTE_BBOX[3]]]);
   });
 });
