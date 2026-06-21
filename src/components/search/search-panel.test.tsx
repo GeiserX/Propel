@@ -111,3 +111,48 @@ describe("SearchPanel — destination-first flow", () => {
     expect(onRoute).not.toHaveBeenCalled();
   });
 });
+
+describe("SearchPanel — mobile bottom sheet", () => {
+  const ROUTE = {
+    geometry: { type: "LineString" as const, coordinates: [[-3.7, 40.4], [-0.37, 39.47]] },
+    distance: 6400,
+    duration: 480,
+    bbox: [-3.7, 39.47, -0.37, 40.4] as [number, number, number, number],
+  };
+
+  // Stub matchMedia so the (max-width: 639px) query reports a match → isMobile.
+  function stubViewport(isMobile: boolean) {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((q: string) => ({
+        matches: q.includes("max-width: 639px") ? isMobile : false,
+        media: q,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("renders the route in a bottom sheet (role=dialog) on a mobile viewport", async () => {
+    stubViewport(true);
+    renderPanel({ routes: [ROUTE], initialRoute: { from: [-3.7, 40.4], to: [-0.37, 39.47], via: [] } });
+    // The sheet is the dialog container; it appears once a route is active.
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  });
+
+  it("does NOT render a bottom sheet on desktop (side-card layout)", async () => {
+    stubViewport(false);
+    renderPanel({ routes: [ROUTE], initialRoute: { from: [-3.7, 40.4], to: [-0.37, 39.47], via: [] } });
+    // Give effects a tick; the dialog must never appear on desktop.
+    await waitFor(() => expect(screen.getByText("share.shareRoute")).toBeInTheDocument());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});

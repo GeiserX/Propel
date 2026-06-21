@@ -7,6 +7,8 @@ import type { StationsGeoJSONCollection } from "@/types/station";
 import { AutocompleteInput, type AutocompleteRef } from "./autocomplete-input";
 import { RouteAlternatives } from "./route-alternatives";
 import { StationResults } from "./station-results";
+import { BottomSheet, type SheetSnap } from "./bottom-sheet";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useI18n } from "@/lib/i18n";
 import { projectOntoRoute } from "@/lib/route-geometry";
 import { formatDistance, formatDuration } from "@/lib/format";
@@ -106,8 +108,12 @@ export function SearchPanel({
   userLocation,
 }: SearchPanelProps) {
   const { t } = useI18n();
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const [phase, setPhase] = useState<Phase>("dest");
   const [collapsed, setCollapsed] = useState(false);
+  // Mobile bottom-sheet snap point. Starts at "half" so the first stations are
+  // visible the moment a route resolves, without covering the whole map.
+  const [sheetSnap, setSheetSnap] = useState<SheetSnap>("half");
   const [sortBy, setSortBy] = useState<"price" | "detour" | "km">("price");
   const [originText, setOriginText] = useState("");
   const [destText, setDestText] = useState("");
@@ -686,7 +692,120 @@ export function SearchPanel({
     return { avgPrice: avg, cheapestId: cheapest, shortestDetourId: shortestDetour, balancedId: balanced };
   }, [stationList]);
 
-  return (
+  // Route content (alternatives + share + station list). Shared verbatim by the
+  // desktop side-card layout and the mobile bottom sheet. On mobile the parent
+  // sheet owns the collapse affordance, so the `!collapsed` guards (driven by the
+  // desktop-only collapse toggle) are always true there.
+  const routeContent = (
+    <>
+      {/* Route info + alternatives — hidden when collapsed */}
+      {primaryRoute && !collapsed && (
+        <div className="mt-2 shrink-0 overflow-hidden rounded-2xl border border-black/[0.06] bg-white/90 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
+          {/* All routes — selected one shows preview metrics when active */}
+          {routes && (
+            <RouteAlternatives
+              routes={routes}
+              displayRoutes={displayRoutes}
+              primaryRouteIndex={primaryRouteIndex}
+              isLoading={isLoading}
+              onSelectRoute={onSelectRoute}
+            />
+          )}
+          {/* Share / Copy route — both build the same deep-link URL; Share opens
+              the native sheet (clipboard fallback), Copy writes it directly. */}
+          {origin && destination && (
+            <div className="flex border-t border-black/[0.05] dark:border-white/[0.06]">
+              <button
+                onClick={handleShareRoute}
+                className="flex flex-1 items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+              >
+                {shareCopied ? (
+                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+                  </svg>
+                )}
+                {shareCopied ? t("share.copied") : t("share.shareRoute")}
+              </button>
+              <button
+                onClick={handleCopyRoute}
+                className="flex flex-1 items-center justify-center gap-1.5 border-l border-black/[0.05] px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:border-white/[0.06] dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+              >
+                {linkCopied ? (
+                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+                  </svg>
+                )}
+                {linkCopied ? t("share.copied") : t("popup.copyLink")}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading spinner while stations are being fetched */}
+      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !collapsed && (
+        <div className="mt-2 flex items-center justify-center rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-6 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500 dark:border-emerald-500/25 dark:border-t-emerald-400" />
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("stations.loading")}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state when corridor loading finishes with zero stations */}
+      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
+        <div className="mt-2 rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-4 text-center shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t(stationsError ? "stations.loadError" : "stations.noStations")}</span>
+        </div>
+      )}
+
+      {/* Station list along route — hidden when collapsed */}
+      {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
+        <StationResults
+          stationList={stationList}
+          avgPrice={avgPrice}
+          cheapestId={cheapestId}
+          shortestDetourId={shortestDetourId}
+          balancedId={balancedId}
+          selectedStationId={selectedStationId}
+          sortBy={sortBy}
+          onSortByChange={setSortBy}
+          maxDetour={maxDetour}
+          onMaxDetourChange={onMaxDetourChange}
+          detourBasis={detourBasis}
+          onDetourBasisChange={onDetourBasisChange}
+          corridorKm={corridorKm}
+          onCorridorKmChange={onCorridorKmChange}
+          detoursLoading={detoursLoading}
+          primaryRoute={primaryRoute}
+          stationLegMsg={stationLegMsg}
+          onStationToggleOff={() => {
+            // Toggle off: remove station-leg waypoint and clear preview
+            setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+            onClearStationLeg?.();
+            // On mobile, drop the sheet to peek so the map is visible again.
+            if (isMobile) setSheetSnap("peek");
+          }}
+          onStationSelect={(coords, sid) => {
+            onFlyTo(coords, sid);
+            // On mobile, lower the sheet to peek so the picked station shows on
+            // the map; the sheet can be dragged back up to keep browsing.
+            if (isMobile) setSheetSnap("peek");
+          }}
+        />
+      )}
+    </>
+  );
+
+  const desktopPanel = (
     <div className="absolute left-2 right-2 top-2 z-10 flex max-h-[calc(100dvh-4rem)] flex-col sm:left-3 sm:right-auto sm:top-3 sm:w-[340px]">
       {/* Search card */}
       <div className="shrink-0 rounded-2xl border border-black/[0.06] bg-white/90 p-1.5 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
@@ -871,8 +990,9 @@ export function SearchPanel({
           </div>
         )}
 
-        {/* Collapse toggle — when route is active */}
-        {phase === "route" && primaryRoute && (
+        {/* Collapse toggle — desktop only. On mobile the bottom-sheet drag
+            handle is the collapse/expand affordance, so this is hidden there. */}
+        {!isMobile && phase === "route" && primaryRoute && (
           <button
             onClick={() => setCollapsed((v) => !v)}
             className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-gray-100/80 px-3 py-2 transition-colors hover:bg-gray-200/70 dark:bg-white/[0.04] dark:hover:bg-white/[0.07]"
@@ -905,108 +1025,41 @@ export function SearchPanel({
         </div>
       )}
 
-      {/* Route info + alternatives — hidden when collapsed */}
-      {primaryRoute && !collapsed && (
-        <div className="mt-2 shrink-0 overflow-hidden rounded-2xl border border-black/[0.06] bg-white/90 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
-          {/* All routes — selected one shows preview metrics when active */}
-          {routes && (
-            <RouteAlternatives
-              routes={routes}
-              displayRoutes={displayRoutes}
-              primaryRouteIndex={primaryRouteIndex}
-              isLoading={isLoading}
-              onSelectRoute={onSelectRoute}
-            />
-          )}
-          {/* Share / Copy route — both build the same deep-link URL; Share opens
-              the native sheet (clipboard fallback), Copy writes it directly. */}
-          {origin && destination && (
-            <div className="flex border-t border-black/[0.05] dark:border-white/[0.06]">
-              <button
-                onClick={handleShareRoute}
-                className="flex flex-1 items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
-              >
-                {shareCopied ? (
-                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                  </svg>
-                ) : (
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
-                  </svg>
-                )}
-                {shareCopied ? t("share.copied") : t("share.shareRoute")}
-              </button>
-              <button
-                onClick={handleCopyRoute}
-                className="flex flex-1 items-center justify-center gap-1.5 border-l border-black/[0.05] px-4 py-2 text-xs font-semibold text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:border-white/[0.06] dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
-              >
-                {linkCopied ? (
-                  <svg className="h-3.5 w-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                  </svg>
-                ) : (
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
-                  </svg>
-                )}
-                {linkCopied ? t("share.copied") : t("popup.copyLink")}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Loading spinner while stations are being fetched */}
-      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !collapsed && (
-        <div className="mt-2 flex items-center justify-center rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-6 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
-          <div className="flex flex-col items-center gap-2">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500 dark:border-emerald-500/25 dark:border-t-emerald-400" />
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("stations.loading")}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Empty state when corridor loading finishes with zero stations */}
-      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
-        <div className="mt-2 rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-4 text-center shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t(stationsError ? "stations.loadError" : "stations.noStations")}</span>
-        </div>
-      )}
-
-      {/* Station list along route — hidden when collapsed */}
-      {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
-        <StationResults
-          stationList={stationList}
-          avgPrice={avgPrice}
-          cheapestId={cheapestId}
-          shortestDetourId={shortestDetourId}
-          balancedId={balancedId}
-          selectedStationId={selectedStationId}
-          sortBy={sortBy}
-          onSortByChange={setSortBy}
-          maxDetour={maxDetour}
-          onMaxDetourChange={onMaxDetourChange}
-          detourBasis={detourBasis}
-          onDetourBasisChange={onDetourBasisChange}
-          corridorKm={corridorKm}
-          onCorridorKmChange={onCorridorKmChange}
-          detoursLoading={detoursLoading}
-          primaryRoute={primaryRoute}
-          stationLegMsg={stationLegMsg}
-          onStationToggleOff={() => {
-            // Toggle off: remove station-leg waypoint and clear preview
-            setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
-            onClearStationLeg?.();
-            if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
-          }}
-          onStationSelect={(coords, sid) => {
-            onFlyTo(coords, sid);
-            if (window.matchMedia("(max-width: 639px)").matches) setCollapsed(true);
-          }}
-        />
-      )}
+      {/* Route content — desktop stacks it in the side card; mobile renders it
+          in the bottom sheet (below) instead so the list never pushes off-screen. */}
+      {!isMobile && routeContent}
     </div>
+  );
+
+  // Desktop (≥640px): the side-card layout above. Mobile (≤639px): the map fills
+  // the viewport and the route + stations ride in a draggable bottom sheet, so
+  // the station list scrolls inside the sheet rather than being pushed below the
+  // fold (the reported problem). The search card stays pinned at the top.
+  if (!isMobile) return desktopPanel;
+
+  return (
+    <>
+      {desktopPanel}
+      {phase === "route" && primaryRoute && (
+        <BottomSheet
+          snap={sheetSnap}
+          onSnapChange={setSheetSnap}
+          summary={
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
+              <div className="h-2 w-2 rounded-full bg-blue-500 ring-2 ring-blue-500/25" />
+              <span>{formatDistance(displayRoute!.distance)}</span>
+              <span className="text-gray-400 dark:text-gray-500">·</span>
+              <span>{formatDuration(displayRoute!.duration)}</span>
+              <span className="ml-auto text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                {t("stations.title")} ({allCorridorStations.length})
+              </span>
+            </div>
+          }
+        >
+          {routeContent}
+        </BottomSheet>
+      )}
+    </>
   );
 }
 
