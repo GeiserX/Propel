@@ -559,6 +559,7 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           onCorridorKmChange={setCorridorKm}
           initialRoute={initialRoute}
           selectedFuel={selectedFuel}
+          userLocation={userLocation}
         />
       </div>
     </main>
