@@ -31,6 +31,8 @@ const translations: Record<Locale, Record<string, string>> = {
   es: {
     "search.placeholder": "Buscar lugar...",
     "search.destination": "Destino",
+    "search.origin": "Origen",
+    "search.whereTo": "¿A dónde vas?",
     "search.addWaypoint": "Añadir parada",
     "search.waypoint": "Parada intermedia",
     "search.swap": "Intercambiar origen y destino",
@@ -91,6 +93,8 @@ const translations: Record<Locale, Record<string, string>> = {
   en: {
     "search.placeholder": "Search place...",
     "search.destination": "Destination",
+    "search.origin": "Origin",
+    "search.whereTo": "Where to?",
     "search.addWaypoint": "Add stop",
     "search.waypoint": "Intermediate stop",
     "search.swap": "Swap origin and destination",
@@ -151,6 +155,8 @@ const translations: Record<Locale, Record<string, string>> = {
   fr: {
     "search.placeholder": "Rechercher un lieu...",
     "search.destination": "Destination",
+    "search.origin": "Origine",
+    "search.whereTo": "Où allez-vous ?",
     "search.addWaypoint": "Ajouter un arrêt",
     "search.waypoint": "Arrêt intermédiaire",
     "search.swap": "Inverser origine et destination",
@@ -211,6 +217,8 @@ const translations: Record<Locale, Record<string, string>> = {
   de: {
     "search.placeholder": "Ort suchen...",
     "search.destination": "Ziel",
+    "search.origin": "Start",
+    "search.whereTo": "Wohin?",
     "search.addWaypoint": "Zwischenstopp",
     "search.waypoint": "Zwischenziel",
     "search.swap": "Start und Ziel tauschen",
@@ -271,6 +279,8 @@ const translations: Record<Locale, Record<string, string>> = {
   it: {
     "search.placeholder": "Cerca luogo...",
     "search.destination": "Destinazione",
+    "search.origin": "Origine",
+    "search.whereTo": "Dove vai?",
     "search.addWaypoint": "Aggiungi tappa",
     "search.waypoint": "Tappa intermedia",
     "search.swap": "Inverti partenza e arrivo",
@@ -331,6 +341,8 @@ const translations: Record<Locale, Record<string, string>> = {
   pt: {
     "search.placeholder": "Pesquisar local...",
     "search.destination": "Destino",
+    "search.origin": "Origem",
+    "search.whereTo": "Para onde vais?",
     "search.addWaypoint": "Adicionar paragem",
     "search.waypoint": "Paragem intermédia",
     "search.swap": "Trocar origem e destino",
@@ -391,6 +403,8 @@ const translations: Record<Locale, Record<string, string>> = {
   pl: {
     "search.placeholder": "Szukaj miejsca...",
     "search.destination": "Cel",
+    "search.origin": "Początek",
+    "search.whereTo": "Dokąd jedziesz?",
     "search.addWaypoint": "Dodaj przystanek",
     "search.waypoint": "Przystanek pośredni",
     "search.swap": "Zamień start i cel",
@@ -451,6 +465,8 @@ const translations: Record<Locale, Record<string, string>> = {
   cs: {
     "search.placeholder": "Hledat místo...",
     "search.destination": "Cíl",
+    "search.origin": "Odkud",
+    "search.whereTo": "Kam jedeš?",
     "search.addWaypoint": "Přidat zastávku",
     "search.waypoint": "Mezizastávka",
     "search.swap": "Prohodit start a cíl",
@@ -511,6 +527,8 @@ const translations: Record<Locale, Record<string, string>> = {
   hu: {
     "search.placeholder": "Hely keresése...",
     "search.destination": "Úti cél",
+    "search.origin": "Honnan",
+    "search.whereTo": "Hová mész?",
     "search.addWaypoint": "Megálló hozzáadása",
     "search.waypoint": "Köztes megálló",
     "search.swap": "Indulás és cél csere",
@@ -571,6 +589,8 @@ const translations: Record<Locale, Record<string, string>> = {
   bg: {
     "search.placeholder": "Търсене на място...",
     "search.destination": "Дестинация",
+    "search.origin": "Начало",
+    "search.whereTo": "Накъде?",
     "search.addWaypoint": "Добави спирка",
     "search.waypoint": "Междинна спирка",
     "search.swap": "Размени старт и край",
@@ -631,6 +651,8 @@ const translations: Record<Locale, Record<string, string>> = {
   sk: {
     "search.placeholder": "Hľadať miesto...",
     "search.destination": "Cieľ",
+    "search.origin": "Odkiaľ",
+    "search.whereTo": "Kam ideš?",
     "search.addWaypoint": "Pridať zastávku",
     "search.waypoint": "Medzizastávka",
     "search.swap": "Vymeniť štart a cieľ",
@@ -691,6 +713,8 @@ const translations: Record<Locale, Record<string, string>> = {
   da: {
     "search.placeholder": "Søg sted...",
     "search.destination": "Destination",
+    "search.origin": "Start",
+    "search.whereTo": "Hvorhen?",
     "search.addWaypoint": "Tilføj stop",
     "search.waypoint": "Mellemstop",
     "search.swap": "Byt start og mål",
@@ -751,6 +775,8 @@ const translations: Record<Locale, Record<string, string>> = {
   sv: {
     "search.placeholder": "Sök plats...",
     "search.destination": "Destination",
+    "search.origin": "Start",
+    "search.whereTo": "Vart?",
     "search.addWaypoint": "Lägg till stopp",
     "search.waypoint": "Mellanstopp",
     "search.swap": "Byt start och mål",
@@ -811,6 +837,8 @@ const translations: Record<Locale, Record<string, string>> = {
   no: {
     "search.placeholder": "Søk sted...",
     "search.destination": "Destinasjon",
+    "search.origin": "Start",
+    "search.whereTo": "Hvor skal du?",
     "search.addWaypoint": "Legg til stopp",
     "search.waypoint": "Mellomstopp",
     "search.swap": "Bytt start og mål",
@@ -871,6 +899,8 @@ const translations: Record<Locale, Record<string, string>> = {
   sr: {
     "search.placeholder": "Pretraži mesto...",
     "search.destination": "Odredište",
+    "search.origin": "Polazak",
+    "search.whereTo": "Kuda ideš?",
     "search.addWaypoint": "Dodaj stanicu",
     "search.waypoint": "Međustanica",
     "search.swap": "Zameni start i cilj",
@@ -931,6 +961,8 @@ const translations: Record<Locale, Record<string, string>> = {
   fi: {
     "search.placeholder": "Etsi paikka...",
     "search.destination": "Määränpää",
+    "search.origin": "Lähtö",
+    "search.whereTo": "Minne?",
     "search.addWaypoint": "Lisää pysähdys",
     "search.waypoint": "Välipysähdys",
     "search.swap": "Vaihda lähtö ja määränpää",

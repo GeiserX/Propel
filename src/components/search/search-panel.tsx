@@ -13,7 +13,13 @@ import { formatDistance, formatDuration } from "@/lib/format";
 import { shareOrCopy, copyToClipboard } from "@/lib/share";
 import { buildRouteQuery } from "@/lib/share-url";
 
-type Phase = "search" | "destination" | "route";
+// Destination-first flow:
+//   "dest"     — single box on open; whatever you type is the DESTINATION.
+//                Origin is hidden (auto-fills from your location when available).
+//   "planning" — both origin + destination visible, no route yet (origin was
+//                revealed because location resolved, or you need to type a start).
+//   "route"    — a route is active.
+type Phase = "dest" | "planning" | "route";
 
 const MAX_WAYPOINTS = 5;
 
@@ -49,6 +55,12 @@ interface SearchPanelProps {
   initialRoute?: { from: [number, number]; to: [number, number]; via: [number, number][] } | null;
   /** Selected fuel code — written into the shared route URL (`fuel=` param). */
   selectedFuel?: string;
+  /**
+   * The user's current location (lng,lat) once shared, else null. Used to
+   * auto-fill the ORIGIN in the destination-first flow: when present, picking a
+   * destination routes straight from "My location" — no manual origin entry.
+   */
+  userLocation?: [number, number] | null;
 }
 
 interface Location {
@@ -91,9 +103,10 @@ export function SearchPanel({
   onCorridorKmChange,
   initialRoute,
   selectedFuel,
+  userLocation,
 }: SearchPanelProps) {
   const { t } = useI18n();
-  const [phase, setPhase] = useState<Phase>("search");
+  const [phase, setPhase] = useState<Phase>("dest");
   const [collapsed, setCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState<"price" | "detour" | "km">("price");
   const [originText, setOriginText] = useState("");
@@ -105,11 +118,16 @@ export function SearchPanel({
   const destRef = useRef<AutocompleteRef>(null);
   const waypointRefs = useRef<Map<number, AutocompleteRef>>(new Map());
   const originEditedRef = useRef(false);
+  // True once the origin has been auto-seeded from the user's location OR the
+  // user has explicitly set/edited it. Prevents the auto-seed effect from
+  // re-filling "My location" after the user has taken control of the origin.
+  const originSeededRef = useRef(false);
 
-  // Roll back to destination phase if route calculation failed
+  // Roll back to the planning phase (both boxes visible) if route calc failed,
+  // so the user can adjust origin/destination and retry.
   useEffect(() => {
     if (routeError && phase === "route" && !routes) {
-      setPhase("destination");
+      setPhase("planning");
     }
   }, [routeError, phase, routes]);
 
@@ -128,26 +146,28 @@ export function SearchPanel({
   // When a station-leg preview is active, show its duration/distance instead
   const displayRoute = displayRoutes?.[0] ?? primaryRoute;
 
-  // "My location" handler — triggers geolocation and sets as origin
+  // "My location" handler — triggers geolocation and sets it as the origin.
+  // In the destination-first flow, if a destination is already set we route
+  // straight away; otherwise we keep both boxes open and focus the destination.
   const handleLocationSelect = useCallback(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
         const label = t("geo.myLocation");
-        setOrigin({ label, coordinates: coords });
+        const originLoc: Location = { label, coordinates: coords };
+        setOrigin(originLoc);
         setOriginText(label);
+        originSeededRef.current = true;
         onFlyTo(coords);
 
-        if (phase === "route") {
-          onClearRoute();
-          setDestText("");
-          setDestination(null);
-          setWaypoints([]);
+        if (destination) {
+          setPhase("route");
+          calculateRoute(originLoc, destination, waypoints);
+        } else {
+          setPhase("planning");
+          setTimeout(() => destRef.current?.focus(), 100);
         }
-
-        setPhase("destination");
-        setTimeout(() => destRef.current?.focus(), 100);
       },
       () => {
         setOriginText("");
@@ -155,7 +175,8 @@ export function SearchPanel({
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
-  }, [t, onFlyTo, onClearRoute, phase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- calculateRoute defined below; stable
+  }, [t, onFlyTo, destination, waypoints]);
 
   // Calculate route with current state
   const calculateRoute = useCallback(
@@ -190,32 +211,55 @@ export function SearchPanel({
     setDestText(label);
     setWaypoints(wps);
     setPhase("route");
+    originSeededRef.current = true; // deep-link owns the origin; don't auto-seed
     calculateRoute(o, d, wps);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot mount prefill; calculateRoute is stable
   }, [initialRoute]);
 
-  // Origin selected
+  // Auto-seed the origin from the user's shared location (destination-first
+  // flow). Runs once, when location first becomes available, as long as the
+  // user hasn't already set/edited the origin and no deep-link route is driving.
+  // Seeding the origin while still in the single-box "dest" phase keeps the box
+  // showing the destination — the origin only becomes visible once the user
+  // picks a destination (handleDestSelect) or reveals it manually.
+  useEffect(() => {
+    if (originSeededRef.current || initialRoute) return;
+    if (!userLocation) return;
+    originSeededRef.current = true;
+    const label = t("geo.myLocation");
+    setOrigin({ label, coordinates: userLocation });
+    // Set the text too so the origin box shows "My location" when it slides in
+    // (the box is hidden in the single-box "dest" phase, so this is invisible
+    // until the user picks a destination and the origin row appears).
+    setOriginText(label);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot seed on first location
+  }, [userLocation]);
+
+  // Origin selected (manual) — the user took control of the start point.
   const handleOriginSelect = useCallback(
     (result: PhotonResult) => {
       const loc: Location = { label: formatResult(result), coordinates: result.coordinates };
       setOrigin(loc);
       setOriginText(formatResult(result));
+      originSeededRef.current = true;
       onFlyTo(result.coordinates);
 
-      if (phase === "route") {
-        onClearRoute();
-        setDestText("");
-        setDestination(null);
-        setWaypoints([]);
+      // Both endpoints known → route immediately; else stay in planning.
+      if (destination) {
+        setPhase("route");
+        calculateRoute(loc, destination, waypoints);
+      } else {
+        setPhase("planning");
+        setTimeout(() => destRef.current?.focus(), 100);
       }
-
-      setPhase("destination");
-      setTimeout(() => destRef.current?.focus(), 100);
     },
-    [onFlyTo, onClearRoute, phase],
+    [onFlyTo, destination, waypoints, calculateRoute],
   );
 
-  // Destination selected → auto-calculate route
+  // Destination selected → the heart of the destination-first flow.
+  //   - origin already known (seeded from location or set manually) → route now;
+  //   - no origin yet → reveal the origin box and focus it so the user can type
+  //     a start (the "location unavailable" fallback).
   const handleDestSelect = useCallback(
     (result: PhotonResult) => {
       const loc: Location = { label: formatResult(result), coordinates: result.coordinates };
@@ -225,6 +269,9 @@ export function SearchPanel({
       if (origin) {
         setPhase("route");
         calculateRoute(origin, loc, waypoints);
+      } else {
+        setPhase("planning");
+        setTimeout(() => originRef.current?.focus(), 100);
       }
     },
     [origin, waypoints, calculateRoute],
@@ -259,62 +306,68 @@ export function SearchPanel({
     [],
   );
 
+  // Editing the ORIGIN (secondary box). Origin changes invalidate the route but
+  // — unlike the old origin-first flow — must NOT wipe the destination, which is
+  // now the primary field the user started from.
   const handleOriginChange = useCallback(
     (val: string) => {
       setOriginText(val);
-      if (phase === "route" || phase === "destination") {
-        originEditedRef.current = true;
+      originEditedRef.current = true;
+      originSeededRef.current = true; // user has taken control of the origin
+      setOrigin(null);
+      if (phase === "route") {
         onClearRoute();
-        setDestText("");
-        setDestination(null);
-        setOrigin(null);
-        setWaypoints([]);
-        setPhase("search");
+        setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+        setPhase("planning");
       }
     },
     [phase, onClearRoute],
   );
 
+  // Editing the DESTINATION (primary box). Invalidates the route; keeps the
+  // origin so the user can just retype where they're going.
   const handleDestChange = useCallback(
     (val: string) => {
       setDestText(val);
       setDestination(null);
       if (phase === "route") {
         onClearRoute();
-        setWaypoints([]);
-        setPhase("destination");
+        setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+        setPhase(origin ? "planning" : "dest");
       } else if (routeError) {
         onClearRoute();
       }
     },
-    [phase, onClearRoute, routeError],
+    [phase, onClearRoute, routeError, origin],
   );
 
   const handleWaypointChange = useCallback((wpId: number, val: string) => {
     setWaypoints((prev) => prev.map((wp) => (wp.id === wpId ? { ...wp, text: val, location: null, isStationLeg: false } : wp)));
     if (phase === "route") {
       onClearRoute();
-      setPhase("destination");
+      setPhase("planning");
     }
   }, [phase, onClearRoute]);
 
   const handleOriginEnter = useCallback(async () => {
     if (!originText.trim()) return;
     if (origin) {
-      setPhase("destination");
-      setTimeout(() => destRef.current?.focus(), 100);
+      if (destination) { setPhase("route"); calculateRoute(origin, destination, waypoints); }
+      else setTimeout(() => destRef.current?.focus(), 100);
       return;
     }
     const result = await originRef.current?.geocode(originText.trim());
     if (result) handleOriginSelect(result);
-  }, [originText, origin, handleOriginSelect]);
+  }, [originText, origin, destination, waypoints, calculateRoute, handleOriginSelect]);
 
+  // Enter on the destination box. No longer requires a pre-set origin — that's
+  // the whole point of destination-first: pick where you're going, and either
+  // route from your location or get prompted for a start.
   const handleDestEnter = useCallback(async () => {
-    if (!destText.trim() || !origin) return;
+    if (!destText.trim()) return;
     if (destination) {
-      // Allow retry (e.g. after route failure) by re-triggering calculation
-      setPhase("route");
-      calculateRoute(origin, destination, waypoints);
+      if (origin) { setPhase("route"); calculateRoute(origin, destination, waypoints); }
+      else { setPhase("planning"); setTimeout(() => originRef.current?.focus(), 100); }
       return;
     }
     const result = await destRef.current?.geocode(destText.trim());
@@ -336,12 +389,13 @@ export function SearchPanel({
     originEditedRef.current = false;
   }, []);
 
+  // If the user focused the origin box but blurred without editing, restore the
+  // resolved label (e.g. "My location") so a stray focus can't leave it blank.
   const handleOriginBlur = useCallback(() => {
-    if (!originEditedRef.current && origin && phase === "search") {
+    if (!originEditedRef.current && origin && originText !== origin.label) {
       setOriginText(origin.label);
-      setPhase(destination ? "route" : "destination");
     }
-  }, [origin, destination, phase]);
+  }, [origin, originText]);
 
   // Swap origin ↔ destination
   const handleSwap = useCallback(() => {
@@ -542,16 +596,18 @@ export function SearchPanel({
     }
   }, [routeShareUrl]);
 
-  const showDest = phase === "destination" || phase === "route";
+  // In the destination-first flow the DESTINATION is the always-visible primary
+  // box; the ORIGIN (+ waypoints) slide in above it once planning starts.
+  const showOrigin = phase === "planning" || phase === "route";
 
-  const [destVisible, setDestVisible] = useState(false);
+  const [originVisible, setOriginVisible] = useState(false);
   useEffect(() => {
-    if (showDest) {
-      const t = setTimeout(() => setDestVisible(true), 300);
+    if (showOrigin) {
+      const t = setTimeout(() => setOriginVisible(true), 300);
       return () => clearTimeout(t);
     }
-    setDestVisible(false);
-  }, [showDest]);
+    setOriginVisible(false);
+  }, [showOrigin]);
 
   // All corridor stations (price may be null for EV chargers)
   const allCorridorStations = useMemo(
@@ -634,58 +690,55 @@ export function SearchPanel({
     <div className="absolute left-2 right-2 top-2 z-10 flex max-h-[calc(100dvh-4rem)] flex-col sm:left-3 sm:right-auto sm:top-3 sm:w-[340px]">
       {/* Search card */}
       <div className="shrink-0 rounded-2xl border border-black/[0.06] bg-white/90 p-1.5 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
-        {/* Origin row */}
-        <div className="group/field flex items-center rounded-xl transition-colors focus-within:bg-emerald-50/60 hover:bg-gray-50/70 dark:focus-within:bg-emerald-500/[0.08] dark:hover:bg-white/[0.03]">
-          <div className="flex w-9 shrink-0 items-center justify-center">
-            {showDest ? (
-              <span className="h-3 w-3 rounded-full border-[2.5px] border-emerald-500 bg-white dark:bg-gray-900" />
-            ) : (
-              <svg className="h-4 w-4 text-gray-400 transition-colors group-focus-within/field:text-emerald-500 dark:text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-              </svg>
-            )}
-          </div>
-          <AutocompleteInput
-            ref={originRef}
-            placeholder={t("search.placeholder")}
-            value={originText}
-            onChange={handleOriginChange}
-            onSelect={handleOriginSelect}
-            onClearCoordinates={() => setOrigin(null)}
-            onEnter={handleOriginEnter}
-            onFocus={handleOriginFocus}
-            onBlur={handleOriginBlur}
-            mapCenter={mapCenter}
-            bare
-            locationLabel={t("geo.myLocation")}
-            onLocationSelect={handleLocationSelect}
-          />
-          {originText && (
-            <button
-              onClick={() => {
-                setOriginText("");
-                setOrigin(null);
-                setDestText("");
-                setDestination(null);
-                setWaypoints([]);
-                if (phase === "route") onClearRoute();
-                setPhase("search");
-              }}
-              className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* Destination + waypoints — slides in, hidden when collapsed */}
+        {/* Origin + waypoints — destination-first: hidden on open, slides in
+            above the destination once planning starts. Hidden when collapsed. */}
         <div
           className={`transition-all duration-300 ease-out ${
-            showDest && !collapsed ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-          } ${destVisible && !collapsed ? "overflow-visible" : "overflow-hidden"}`}
+            showOrigin && !collapsed ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+          } ${originVisible && !collapsed ? "overflow-visible" : "overflow-hidden"}`}
         >
+          {/* Origin row */}
+          <div className="group/field flex items-center rounded-xl transition-colors focus-within:bg-emerald-50/60 hover:bg-gray-50/70 dark:focus-within:bg-emerald-500/[0.08] dark:hover:bg-white/[0.03]">
+            <div className="flex w-9 shrink-0 items-center justify-center">
+              <span className="h-3 w-3 rounded-full border-[2.5px] border-emerald-500 bg-white dark:bg-gray-900" />
+            </div>
+            <AutocompleteInput
+              ref={originRef}
+              placeholder={t("search.origin")}
+              value={originText}
+              onChange={handleOriginChange}
+              onSelect={handleOriginSelect}
+              onClearCoordinates={() => setOrigin(null)}
+              onEnter={handleOriginEnter}
+              onFocus={handleOriginFocus}
+              onBlur={handleOriginBlur}
+              mapCenter={mapCenter}
+              bare
+              locationLabel={t("geo.myLocation")}
+              onLocationSelect={handleLocationSelect}
+            />
+            {originText && (
+              <button
+                onClick={() => {
+                  setOriginText("");
+                  setOrigin(null);
+                  originSeededRef.current = true; // user cleared it — don't re-seed
+                  if (phase === "route") {
+                    onClearRoute();
+                    setWaypoints((prev) => prev.filter((wp) => !wp.isStationLeg));
+                    setPhase("planning");
+                  }
+                  setTimeout(() => originRef.current?.focus(), 50);
+                }}
+                className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
           {/* Waypoints (between origin and destination) */}
           {waypoints.map((wp, idx) => (
             <div key={wp.id}>
@@ -752,64 +805,71 @@ export function SearchPanel({
               </button>
             )}
           </div>
+        </div>
 
-          {/* Destination row */}
-          <div className="group/field flex items-center rounded-xl transition-colors focus-within:bg-emerald-50/60 hover:bg-gray-50/70 dark:focus-within:bg-emerald-500/[0.08] dark:hover:bg-white/[0.03]">
-            <div className="flex w-9 shrink-0 items-center justify-center">
+        {/* Destination row — the always-visible primary box (single box on open) */}
+        <div className="group/field flex items-center rounded-xl transition-colors focus-within:bg-emerald-50/60 hover:bg-gray-50/70 dark:focus-within:bg-emerald-500/[0.08] dark:hover:bg-white/[0.03]">
+          <div className="flex w-9 shrink-0 items-center justify-center">
+            {showOrigin ? (
               <svg className="h-[18px] w-[18px] text-gray-500 dark:text-gray-300" fill="currentColor" viewBox="0 0 24 24">
                 <path fillRule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-1.99 3.963-4.98 3.963-8.827a8.25 8.25 0 00-16.5 0c0 3.846 2.02 6.837 3.963 8.827a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
               </svg>
-            </div>
-            <AutocompleteInput
-              ref={destRef}
-              placeholder={`${t("search.destination")}...`}
-              value={destText}
-              onChange={handleDestChange}
-              onSelect={handleDestSelect}
-              onClearCoordinates={() => setDestination(null)}
-              onEnter={handleDestEnter}
-              mapCenter={mapCenter}
-              bare
-            />
-            {destText && (
-              <button
-                onClick={() => {
-                  setDestText("");
-                  setDestination(null);
-                  setWaypoints([]);
-                  if (phase === "route") {
-                    onClearRoute();
-                    setPhase("destination");
-                  } else if (routeError) {
-                    onClearRoute();
-                  }
-                }}
-                className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              </button>
+            ) : (
+              <svg className="h-4 w-4 text-gray-400 transition-colors group-focus-within/field:text-emerald-500 dark:text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
             )}
           </div>
-
-          {/* Add waypoint button */}
-          {showDest && waypoints.length < MAX_WAYPOINTS && (
-            <div className="mt-1 flex items-center border-t border-black/[0.05] pt-0.5 dark:border-white/[0.06]">
-              <button
-                onClick={addWaypoint}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
-              >
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200/80 text-gray-500 group-hover/field:bg-emerald-100 dark:bg-white/10 dark:text-gray-300">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                </span>
-                {t("search.addWaypoint")}
-              </button>
-            </div>
+          <AutocompleteInput
+            ref={destRef}
+            placeholder={showOrigin ? `${t("search.destination")}...` : t("search.whereTo")}
+            value={destText}
+            onChange={handleDestChange}
+            onSelect={handleDestSelect}
+            onClearCoordinates={() => setDestination(null)}
+            onEnter={handleDestEnter}
+            mapCenter={mapCenter}
+            bare
+          />
+          {destText && (
+            <button
+              onClick={() => {
+                setDestText("");
+                setDestination(null);
+                setWaypoints([]);
+                if (phase === "route") {
+                  onClearRoute();
+                  setPhase(origin ? "planning" : "dest");
+                } else if (routeError) {
+                  onClearRoute();
+                }
+                setTimeout(() => destRef.current?.focus(), 50);
+              }}
+              className="mr-1 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-200/70 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
           )}
         </div>
+
+        {/* Add waypoint button */}
+        {showOrigin && !collapsed && waypoints.length < MAX_WAYPOINTS && (
+          <div className="mt-1 flex items-center border-t border-black/[0.05] pt-0.5 dark:border-white/[0.06]">
+            <button
+              onClick={addWaypoint}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-emerald-50/70 hover:text-emerald-600 dark:text-gray-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
+            >
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200/80 text-gray-500 group-hover/field:bg-emerald-100 dark:bg-white/10 dark:text-gray-300">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </span>
+              {t("search.addWaypoint")}
+            </button>
+          </div>
+        )}
 
         {/* Collapse toggle — when route is active */}
         {phase === "route" && primaryRoute && (
