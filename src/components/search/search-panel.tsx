@@ -114,6 +114,8 @@ export function SearchPanel({
   // Mobile bottom-sheet snap point. Starts at "half" so the first stations are
   // visible the moment a route resolves, without covering the whole map.
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>("half");
+  // Transient toast for a "My location" geolocation failure (auto-clears).
+  const [geoErrorMsg, setGeoErrorMsg] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"price" | "detour" | "km">("price");
   const [originText, setOriginText] = useState("");
   const [destText, setDestText] = useState("");
@@ -176,13 +178,18 @@ export function SearchPanel({
         }
       },
       () => {
-        setOriginText("");
-        setOrigin(null);
+        // Geolocation denied / timed out. Give feedback (the old code blanked
+        // the origin silently). Only clear the origin if it was the unconfirmed
+        // seed — never wipe a route or a manually-entered origin out from under
+        // the user; just surface the failure and let them type a start.
+        setGeoErrorMsg(t("geo.denied"));
+        setTimeout(() => setGeoErrorMsg(null), 3000);
+        if (!origin) setTimeout(() => originRef.current?.focus(), 100);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- calculateRoute defined below; stable
-  }, [t, onFlyTo, destination, waypoints]);
+  }, [t, onFlyTo, origin, destination, waypoints]);
 
   // Calculate route with current state
   const calculateRoute = useCallback(
@@ -693,13 +700,15 @@ export function SearchPanel({
   }, [stationList]);
 
   // Route content (alternatives + share + station list). Shared verbatim by the
-  // desktop side-card layout and the mobile bottom sheet. On mobile the parent
-  // sheet owns the collapse affordance, so the `!collapsed` guards (driven by the
-  // desktop-only collapse toggle) are always true there.
+  // desktop side-card layout and the mobile bottom sheet. `collapsed` is a
+  // desktop-only control (its toggle is gated `!isMobile`), so on mobile we
+  // force it off — otherwise collapsing on desktop then resizing to mobile would
+  // render an empty sheet with no way to re-expand (the toggle is hidden there).
+  const routeCollapsed = collapsed && !isMobile;
   const routeContent = (
     <>
       {/* Route info + alternatives — hidden when collapsed */}
-      {primaryRoute && !collapsed && (
+      {primaryRoute && !routeCollapsed && (
         <div className="mt-2 shrink-0 overflow-hidden rounded-2xl border border-black/[0.06] bg-white/90 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
           {/* All routes — selected one shows preview metrics when active */}
           {routes && (
@@ -751,7 +760,7 @@ export function SearchPanel({
       )}
 
       {/* Loading spinner while stations are being fetched */}
-      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !collapsed && (
+      {phase === "route" && stationsLoading && allCorridorStations.length === 0 && !routeCollapsed && (
         <div className="mt-2 flex items-center justify-center rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-6 shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
           <div className="flex flex-col items-center gap-2">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500 dark:border-emerald-500/25 dark:border-t-emerald-400" />
@@ -761,14 +770,14 @@ export function SearchPanel({
       )}
 
       {/* Empty state when corridor loading finishes with zero stations */}
-      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !collapsed && (
+      {phase === "route" && !stationsLoading && allCorridorStations.length === 0 && routes && !routeCollapsed && (
         <div className="mt-2 rounded-2xl border border-black/[0.06] bg-white/90 px-4 py-4 text-center shadow-xl shadow-black/[0.08] ring-1 ring-black/[0.03] backdrop-blur-xl dark:border-white/[0.07] dark:bg-gray-900/90 dark:shadow-black/40 dark:ring-white/[0.04]">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t(stationsError ? "stations.loadError" : "stations.noStations")}</span>
         </div>
       )}
 
       {/* Station list along route — hidden when collapsed */}
-      {phase === "route" && allCorridorStations.length > 0 && !collapsed && (
+      {phase === "route" && allCorridorStations.length > 0 && !routeCollapsed && (
         <StationResults
           stationList={stationList}
           avgPrice={avgPrice}
@@ -1022,6 +1031,12 @@ export function SearchPanel({
       {stationLegError && routes && (
         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-xs font-medium text-amber-700 shadow-lg backdrop-blur-md dark:border-amber-500/30 dark:bg-amber-950/70 dark:text-amber-300">
           {t(stationLegError)}
+        </div>
+      )}
+      {/* Geolocation failure — transient amber toast when "My location" fails */}
+      {geoErrorMsg && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-xs font-medium text-amber-700 shadow-lg backdrop-blur-md dark:border-amber-500/30 dark:bg-amber-950/70 dark:text-amber-300">
+          {geoErrorMsg}
         </div>
       )}
 
