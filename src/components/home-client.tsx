@@ -517,7 +517,12 @@ export function HomeClient({ defaultFuel, center, zoom, clusterStations, locale 
           clusterStations={clusterStations}
           corridorKm={corridorKm}
           routes={routeState?.routes ?? null}
-          displayRoutes={stationLegRoutes ?? routeState?.routes ?? null}
+          // Only a real station-leg preview should put the map in "pinned"
+          // mode (highlight index 0, route-click disabled). Falling back to
+          // routeState.routes here made displayRoutes truthy for EVERY active
+          // route, so the map always highlighted route 0 and ignored clicks /
+          // the selected alternative. Pass the leg (or null), like SearchPanel.
+          displayRoutes={stationLegRoutes}
           primaryRouteIndex={routeState?.primaryIndex ?? 0}
           selectedStationId={selectedStationId}
           onSelectStation={handleSelectStation}
