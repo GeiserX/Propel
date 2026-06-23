@@ -20,7 +20,7 @@ env:
 
 jobs:
   build-amd64:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -73,7 +73,7 @@ jobs:
     # No native ARM64 self-hosted runner exists, so build arm64 via QEMU
     # emulation on the X64 runner. Slower than native but keeps the multi-arch
     # manifest (:tag combining -amd64 + -arm64) working without extra hardware.
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -120,7 +120,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=arm64
 
   manifest:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     needs: [build-amd64, build-arm64]
     permissions:
       contents: read
