@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "Pumperly",
+  "project_id": "985a7cda-4996-42c2-87b3-5cb0906ea246"
+}
