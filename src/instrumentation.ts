@@ -99,6 +99,8 @@ export async function register() {
   const { ArgentinaScraper } = await import("./scrapers/argentina");
   const { MexicoScraper } = await import("./scrapers/mexico");
   const { OCMScraper } = await import("./scrapers/ocm");
+  const { StaticScraper } = await import("./scrapers/static");
+  const { STATIC_DATASETS } = await import("./scrapers/data");
 
   const scraperFactories: Record<string, () => BaseScraper> = {
     ES: () => new SpainScraper(),
@@ -176,6 +178,13 @@ export async function register() {
     EV_AR: () => new OCMScraper("AR"),
     EV_MX: () => new OCMScraper("MX"),
   };
+
+  // Register community-contributed static datasets (see scrapers/data/README.md).
+  // Each is keyed STATIC_<SOURCE> and scrapes from committed data, no network.
+  for (const dataset of STATIC_DATASETS) {
+    const key = `STATIC_${dataset.source.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+    scraperFactories[key] = () => new StaticScraper(dataset);
+  }
 
   // Determine which countries to scrape
   // Enabling "ES" auto-enables "EV_ES" too (unless PUMPERLY_EV_ENABLED=0)
