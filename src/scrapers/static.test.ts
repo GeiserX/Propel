@@ -90,6 +90,18 @@ describe("StaticScraper", () => {
 
 // Guard rail for future contributions: every registered dataset must be sane.
 describe("STATIC_DATASETS registry", () => {
+  // Mirror the normalization in instrumentation.ts so a colliding contribution
+  // (sources differing only in punctuation) fails CI instead of silently
+  // overwriting another dataset's scraper at runtime.
+  it("has no normalized STATIC_<SOURCE> key collisions", () => {
+    const keys = new Set<string>();
+    for (const ds of STATIC_DATASETS) {
+      const key = `STATIC_${ds.source.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+      expect(keys.has(key), `duplicate normalized key ${key} from source ${ds.source}`).toBe(false);
+      keys.add(key);
+    }
+  });
+
   it("every dataset has unique, plausible stations", () => {
     for (const ds of STATIC_DATASETS) {
       expect(ds.country, "country must be 2-letter ISO").toMatch(/^[A-Z]{2}$/);

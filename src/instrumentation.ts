@@ -183,6 +183,15 @@ export async function register() {
   // Each is keyed STATIC_<SOURCE> and scrapes from committed data, no network.
   for (const dataset of STATIC_DATASETS) {
     const key = `STATIC_${dataset.source.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+    if (key in scraperFactories) {
+      // Two sources that differ only in punctuation normalise to the same key
+      // (e.g. "community-us" vs "community_us"). Skip rather than silently
+      // overwrite — the static.test.ts registry guard fails CI on this too.
+      console.error(
+        `[scraper] Static dataset key collision: "${key}" (source "${dataset.source}") already registered — skipping.`,
+      );
+      continue;
+    }
     scraperFactories[key] = () => new StaticScraper(dataset);
   }
 
