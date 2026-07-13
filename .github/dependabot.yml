@@ -17,6 +17,16 @@ updates:
           - '*'
     reviewers:
       - GeiserX
+    ignore:
+      # TypeScript 7 is the native (Go) compiler port. Next.js and
+      # typescript-eslint don't support it yet: `tsc --noEmit` crashes
+      # (TypeError reading 'Cjs') and `next build` fails because the native
+      # port doesn't expose the programmatic TS API those tools consume.
+      # Stay on the TypeScript 6.x line until the toolchain catches up; drop
+      # this ignore once Next.js + typescript-eslint declare TS 7 support (#82).
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: docker
     directory: /docker
     schedule:
