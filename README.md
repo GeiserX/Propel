@@ -40,7 +40,7 @@ Pumperly combines route planning with real-time fuel prices and EV charging stat
 - Plan a route from A to B with autocomplete and alternative routes
 - See every fuel station and EV charger within a corridor along your route
 - Filter by "cheapest within N minutes detour" — the feature no competitor has
-- Covers 36 countries across Europe, Latin America, and Oceania
+- Covers 36 fuel-price countries across Europe, Latin America, and Oceania, plus US EV-charger coverage (stations only — no national fuel-price API exists)
 - 16 languages, multi-currency, fully self-hostable
 - 100% open source (GPL-3.0), no tracking, no cookies, no accounts
 
@@ -96,7 +96,7 @@ Pumperly combines route planning with real-time fuel prices and EV charging stat
 
 | Source | Coverage | License |
 |---|---|---|
-| [Open Charge Map](https://openchargemap.org) | All supported countries | ODbL |
+| [Open Charge Map](https://openchargemap.org) | All supported countries + United States (EV-only) | ODbL |
 
 ### Map & routing
 
