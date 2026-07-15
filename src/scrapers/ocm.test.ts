@@ -239,5 +239,37 @@ describe("OCMScraper", () => {
       expect(stations).toHaveLength(5000);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("partial"))).toBe(true);
     });
+
+    it("drops malformed POIs instead of crashing", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { OCMScraper } = await import("./ocm");
+      const scraper = new OCMScraper("FR");
+
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => [
+          { ID: 1, AddressInfo: { Latitude: 48.85, Longitude: 2.35 } },
+          { ID: "not-a-number", AddressInfo: { Latitude: 48.86, Longitude: 2.36 } },
+          "garbage",
+        ],
+      } as Response);
+
+      const { stations } = await scraper.fetch();
+      expect(stations).toHaveLength(1);
+      expect(stations[0].externalId).toBe("ocm-1");
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("malformed"))).toBe(true);
+    });
+
+    it("throws a clear error on a non-array OCM payload", async () => {
+      const { OCMScraper } = await import("./ocm");
+      const scraper = new OCMScraper("FR");
+
+      vi.mocked(fetch).mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: "error" }),
+      } as Response);
+
+      await expect(scraper.fetch()).rejects.toThrow("expected a JSON array");
+    });
   });
 });

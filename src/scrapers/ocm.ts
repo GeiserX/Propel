@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { BaseScraper, type RawFuelPrice, type RawStation } from "./base";
 
 // ---------------------------------------------------------------------------
@@ -21,8 +22,12 @@ const API_KEY = process.env.PUMPERLY_OCM_API_KEY ?? "";
 const MAX_RESULTS = 5000; // OCM truncates each request at this size
 const MAX_TILE_DEPTH = 9; // world root → ~0.35°×0.7° tiles at depth 9
 const MAX_REQUESTS = 120; // hard budget per country per scrape run
+const MAX_SCRAPE_MS = 15 * 60 * 1000; // total tiling time budget per run
 // Politeness delay between tile requests (ms); tests set it to 0.
-const TILE_DELAY_MS = Number(process.env.PUMPERLY_OCM_TILE_DELAY_MS ?? "300");
+// NaN or negative values (typos) fall back to the default instead of
+// silently disabling throttling.
+const rawTileDelay = Number(process.env.PUMPERLY_OCM_TILE_DELAY_MS ?? "300");
+const TILE_DELAY_MS = Number.isFinite(rawTileDelay) && rawTileDelay >= 0 ? rawTileDelay : 300;
 
 interface BBox {
   latMin: number;
@@ -46,43 +51,26 @@ function splitBox(b: BBox): BBox[] {
   ];
 }
 
-interface OCMConnection {
-  ConnectionTypeID: number;
-  ConnectionType?: { Title: string };
-  StatusTypeID?: number;
-  LevelID?: number;
-  Level?: { Title: string };
-  PowerKW?: number;
-  Quantity?: number;
-}
+// Minimal schema for the fields we actually consume. OCM payloads are messy
+// (null/missing fields are common), so validate at the response boundary and
+// drop malformed entries instead of crashing mid-tiling.
+const OCMPOISchema = z.object({
+  ID: z.number(),
+  OperatorInfo: z.object({ Title: z.string().nullish() }).nullish(),
+  AddressInfo: z
+    .object({
+      Title: z.string().nullish(),
+      AddressLine1: z.string().nullish(),
+      Town: z.string().nullish(),
+      StateOrProvince: z.string().nullish(),
+      Postcode: z.string().nullish(),
+      Latitude: z.number().nullish(),
+      Longitude: z.number().nullish(),
+    })
+    .nullish(),
+});
 
-interface OCMAddressInfo {
-  Title?: string;
-  AddressLine1?: string;
-  Town?: string;
-  StateOrProvince?: string;
-  Postcode?: string;
-  CountryID?: number;
-  Country?: { ISOCode: string; Title: string };
-  Latitude: number;
-  Longitude: number;
-}
-
-interface OCMOperatorInfo {
-  Title?: string;
-}
-
-interface OCMPOI {
-  ID: number;
-  UUID?: string;
-  OperatorInfo?: OCMOperatorInfo;
-  AddressInfo: OCMAddressInfo;
-  Connections?: OCMConnection[];
-  NumberOfPoints?: number;
-  StatusTypeID?: number;
-  DateLastStatusUpdate?: string;
-  DataProviderID?: number;
-}
+type OCMPOI = z.infer<typeof OCMPOISchema>;
 
 export class OCMScraper extends BaseScraper {
   readonly country: string;
@@ -123,7 +111,27 @@ export class OCMScraper extends BaseScraper {
       throw new Error(`OCM HTTP ${res.status}: ${await res.text().catch(() => "")}`);
     }
 
-    return res.json();
+    // Validate at the boundary: reject non-array payloads outright (e.g. an
+    // error object) and drop individual malformed POIs instead of letting
+    // them crash the tiling/dedupe path downstream.
+    const raw: unknown = await res.json();
+    if (!Array.isArray(raw)) {
+      throw new Error(`OCM: expected a JSON array, got ${typeof raw}`);
+    }
+    const pois: OCMPOI[] = [];
+    let dropped = 0;
+    for (const entry of raw) {
+      const parsed = OCMPOISchema.safeParse(entry);
+      if (parsed.success) {
+        pois.push(parsed.data);
+      } else {
+        dropped++;
+      }
+    }
+    if (dropped > 0) {
+      console.warn(`[${this.source}] ${this.country}: dropped ${dropped} malformed POI(s)`);
+    }
+    return pois;
   }
 
   async fetch(): Promise<{ stations: RawStation[]; prices: RawFuelPrice[] }> {
@@ -132,6 +140,7 @@ export class OCMScraper extends BaseScraper {
       return { stations: [], prices: [] };
     }
 
+    const startedAt = Date.now();
     let requests = 1;
     const rootPois = await this.fetchPage();
     const byId = new Map<number, OCMPOI>();
@@ -151,7 +160,9 @@ export class OCMScraper extends BaseScraper {
       }));
       let truncated = false;
       while (queue.length > 0) {
-        if (requests >= MAX_REQUESTS) {
+        // Bound by request count AND elapsed time — 120 requests with slow
+        // 120s responses would otherwise stall a scrape cycle for hours.
+        if (requests >= MAX_REQUESTS || Date.now() - startedAt > MAX_SCRAPE_MS) {
           truncated = true;
           break;
         }
@@ -172,7 +183,7 @@ export class OCMScraper extends BaseScraper {
       }
       if (truncated) {
         console.warn(
-          `[${this.source}] ${this.country}: coverage may be partial — request budget (${MAX_REQUESTS}) or tile depth (${MAX_TILE_DEPTH}) reached`,
+          `[${this.source}] ${this.country}: coverage may be partial — request budget (${MAX_REQUESTS}), time budget (${MAX_SCRAPE_MS / 60000}min) or tile depth (${MAX_TILE_DEPTH}) reached`,
         );
       }
     }
