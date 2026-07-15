@@ -48,6 +48,7 @@ const DEFAULT_INTERVALS: Record<string, number> = {
   EV_HU: 24, EV_BG: 24, EV_SK: 24, EV_DK: 24, EV_SE: 24, EV_NO: 24,
   EV_RS: 24, EV_FI: 24, EV_EE: 24, EV_LV: 24, EV_LT: 24, EV_BA: 24,
   EV_MK: 24, EV_TR: 24, EV_MD: 24, EV_AU: 24, EV_AR: 24, EV_MX: 24,
+  EV_US: 24,
 };
 
 export async function register() {
@@ -177,6 +178,8 @@ export async function register() {
     EV_AU: () => new OCMScraper("AU"),
     EV_AR: () => new OCMScraper("AR"),
     EV_MX: () => new OCMScraper("MX"),
+    // US has no national fuel-price API — EV-only coverage via OCM (#85)
+    EV_US: () => new OCMScraper("US"),
   };
 
   // Register community-contributed static datasets (see scrapers/data/README.md).
@@ -201,9 +204,12 @@ export async function register() {
   const evEnabled = process.env.PUMPERLY_EV_ENABLED !== "0";
   let countries: string[];
   if (enabledRaw) {
-    const explicit = enabledRaw.split(",").map((c) => c.trim().toUpperCase()).filter((c) => c in scraperFactories);
+    const tokens = enabledRaw.split(",").map((c) => c.trim().toUpperCase());
+    const explicit = tokens.filter((c) => c in scraperFactories);
     if (evEnabled) {
-      const evCodes = explicit
+      // Derive EV_XX from the raw tokens, not the matched fuel scrapers, so a
+      // country with EV-only coverage (e.g. bare "US" → EV_US) still enables.
+      const evCodes = tokens
         .filter((c) => !c.startsWith("EV_"))
         .map((c) => `EV_${c}`)
         .filter((c) => c in scraperFactories);

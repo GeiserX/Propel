@@ -126,6 +126,8 @@ const SCRAPERS: Record<string, Array<() => BaseScraper>> = {
   EV_AU: [() => new OCMScraper("AU")],
   EV_AR: [() => new OCMScraper("AR")],
   EV_MX: [() => new OCMScraper("MX")],
+  // US has no national fuel-price API — EV-only coverage via OCM (#85)
+  EV_US: [() => new OCMScraper("US")],
 };
 
 function usage(): never {
