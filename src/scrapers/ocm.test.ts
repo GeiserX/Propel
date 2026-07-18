@@ -226,6 +226,9 @@ describe("OCMScraper", () => {
     });
 
     it("stops at the request budget when every tile keeps hitting the cap", async () => {
+      // A small budget keeps this pathological all-capped case fast and
+      // deterministic (otherwise it parses 800 × 5000 POIs and times out).
+      vi.stubEnv("PUMPERLY_OCM_MAX_REQUESTS", "48");
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const { OCMScraper } = await import("./ocm");
       const scraper = new OCMScraper("US");
@@ -241,8 +244,8 @@ describe("OCMScraper", () => {
       // Terminates at the hard budget instead of recursing forever, and keeps
       // whatever it gathered (capped pages are still merged).
       const calls = vi.mocked(fetch).mock.calls.length;
-      expect(calls).toBeGreaterThan(50);
-      expect(calls).toBeLessThanOrEqual(800);
+      expect(calls).toBeGreaterThan(20);
+      expect(calls).toBeLessThanOrEqual(48);
       expect(stations).toHaveLength(5000);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("partial"))).toBe(true);
     });

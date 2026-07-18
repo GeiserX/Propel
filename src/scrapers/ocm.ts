@@ -28,7 +28,9 @@ const MAX_RESULTS = 5000; // OCM truncates each request at this size
 const rawTrustSpan = Number(process.env.PUMPERLY_OCM_TRUST_SPAN_DEG ?? "2");
 const TRUST_SPAN_DEG = Number.isFinite(rawTrustSpan) && rawTrustSpan > 0 ? rawTrustSpan : 2;
 const MIN_SPAN_DEG = 0.05; // ~5km floor: stop subdividing a still-capped box here
-const MAX_REQUESTS = 800; // hard request budget per country per scrape run
+// Hard request budget per country per scrape run (env-tunable for ops/tests).
+const rawMaxRequests = Number(process.env.PUMPERLY_OCM_MAX_REQUESTS ?? "800");
+const MAX_REQUESTS = Number.isFinite(rawMaxRequests) && rawMaxRequests > 0 ? rawMaxRequests : 800;
 const MAX_SCRAPE_MS = 15 * 60 * 1000; // total tiling time budget per run
 const MAX_RETRIES_429 = 4; // retries on HTTP 429 (rate limit) before giving up
 // Politeness delay between tile requests (ms); tests set it to 0. NaN or
