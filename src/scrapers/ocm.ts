@@ -20,14 +20,26 @@ import { BaseScraper, type RawFuelPrice, type RawStation } from "./base";
 const BASE_URL = "https://api.openchargemap.io/v3/poi/";
 const API_KEY = process.env.PUMPERLY_OCM_API_KEY ?? "";
 const MAX_RESULTS = 5000; // OCM truncates each request at this size
-const MAX_TILE_DEPTH = 9; // world root → ~0.35°×0.7° tiles at depth 9
-const MAX_REQUESTS = 120; // hard budget per country per scrape run
+// OCM's boundingbox count is only trustworthy for SMALL boxes. A box wider
+// than ~2° silently under-reports — a whole-hemisphere box can return ~200
+// when it truly holds thousands (and worse for boxes touching the antimeridian
+// / poles). So an under-cap count on a large box must NOT be treated as
+// "complete": force-subdivide any non-empty box wider than this threshold.
+const rawTrustSpan = Number(process.env.PUMPERLY_OCM_TRUST_SPAN_DEG ?? "2");
+const TRUST_SPAN_DEG = Number.isFinite(rawTrustSpan) && rawTrustSpan > 0 ? rawTrustSpan : 2;
+const MIN_SPAN_DEG = 0.05; // ~5km floor: stop subdividing a still-capped box here
+// Hard request budget per country per scrape run (env-tunable for ops/tests).
+const rawMaxRequests = Number(process.env.PUMPERLY_OCM_MAX_REQUESTS ?? "800");
+const MAX_REQUESTS = Number.isFinite(rawMaxRequests) && rawMaxRequests > 0 ? rawMaxRequests : 800;
 const MAX_SCRAPE_MS = 15 * 60 * 1000; // total tiling time budget per run
-// Politeness delay between tile requests (ms); tests set it to 0.
-// NaN or negative values (typos) fall back to the default instead of
-// silently disabling throttling.
-const rawTileDelay = Number(process.env.PUMPERLY_OCM_TILE_DELAY_MS ?? "300");
-const TILE_DELAY_MS = Number.isFinite(rawTileDelay) && rawTileDelay >= 0 ? rawTileDelay : 300;
+const MAX_RETRIES_429 = 4; // retries on HTTP 429 (rate limit) before giving up
+// Politeness delay between tile requests (ms); tests set it to 0. NaN or
+// negative values (typos) fall back to the default instead of silently
+// disabling throttling. OCM rate-limits (HTTP 429), so keep this well above 0.
+const rawTileDelay = Number(process.env.PUMPERLY_OCM_TILE_DELAY_MS ?? "600");
+const TILE_DELAY_MS = Number.isFinite(rawTileDelay) && rawTileDelay >= 0 ? rawTileDelay : 600;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface BBox {
   latMin: number;
@@ -49,6 +61,12 @@ function splitBox(b: BBox): BBox[] {
     { latMin: latMid, lonMin: b.lonMin, latMax: b.latMax, lonMax: lonMid },
     { latMin: latMid, lonMin: lonMid, latMax: b.latMax, lonMax: b.lonMax },
   ];
+}
+
+// Widest side of a box in degrees — used to decide whether OCM's count for it
+// can be trusted (small boxes) or must be subdivided further (large boxes).
+function maxSpan(b: BBox): number {
+  return Math.max(b.latMax - b.latMin, b.lonMax - b.lonMin);
 }
 
 // Minimal schema for the fields we actually consume. OCM payloads are messy
@@ -98,14 +116,33 @@ export class OCMScraper extends BaseScraper {
       );
     }
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        "X-API-Key": API_KEY,
-        Accept: "application/json",
-        "User-Agent": "Pumperly/1.0",
-      },
-      signal: AbortSignal.timeout(120_000),
-    });
+    // OCM rate-limits with HTTP 429. Retry the same request with backoff
+    // (honouring Retry-After when present) so a transient limit doesn't abort
+    // the whole country mid-tiling.
+    let res: Response;
+    for (let attempt = 0; ; attempt++) {
+      res = await fetch(url.toString(), {
+        headers: {
+          "X-API-Key": API_KEY,
+          Accept: "application/json",
+          "User-Agent": "Pumperly/1.0",
+        },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (res.status !== 429) break;
+      if (attempt >= MAX_RETRIES_429) {
+        throw new Error(`OCM HTTP 429: rate limited after ${MAX_RETRIES_429} retries`);
+      }
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(30_000, 1000 * 2 ** attempt);
+      console.warn(
+        `[${this.source}] ${this.country}: HTTP 429 — backing off ${waitMs}ms (retry ${attempt + 1}/${MAX_RETRIES_429})`,
+      );
+      await sleep(waitMs);
+    }
 
     if (!res.ok) {
       throw new Error(`OCM HTTP ${res.status}: ${await res.text().catch(() => "")}`);
@@ -154,36 +191,40 @@ export class OCMScraper extends BaseScraper {
       // Breadth-first so the request budget refines coverage evenly. Capped
       // tiles are merged anyway (dedupe makes the re-covering children
       // harmless) so budget exhaustion degrades to partial-but-kept data.
-      const queue: Array<{ box: BBox; depth: number }> = splitBox(WORLD).map((box) => ({
-        box,
-        depth: 1,
-      }));
+      const queue: BBox[] = splitBox(WORLD);
       let truncated = false;
       while (queue.length > 0) {
-        // Bound by request count AND elapsed time — 120 requests with slow
+        // Bound by request count AND elapsed time — a large budget with slow
         // 120s responses would otherwise stall a scrape cycle for hours.
         if (requests >= MAX_REQUESTS || Date.now() - startedAt > MAX_SCRAPE_MS) {
           truncated = true;
           break;
         }
-        const { box, depth } = queue.shift()!;
+        const box = queue.shift()!;
         if (TILE_DELAY_MS > 0) {
-          await new Promise((resolve) => setTimeout(resolve, TILE_DELAY_MS));
+          await sleep(TILE_DELAY_MS);
         }
         requests++;
         const pois = await this.fetchPage(box);
         for (const poi of pois) byId.set(poi.ID, poi);
-        if (pois.length >= MAX_RESULTS) {
-          if (depth < MAX_TILE_DEPTH) {
-            queue.push(...splitBox(box).map((b) => ({ box: b, depth: depth + 1 })));
+        // Subdivide when the box is capped (definitely more to find) OR when it
+        // is non-empty and still too wide to trust its under-cap count — OCM
+        // under-reports large boxes, so "< cap" only means "complete" once the
+        // box is small. Stop at the min-span floor so a genuinely dense point
+        // can't recurse forever.
+        const capped = pois.length >= MAX_RESULTS;
+        const tooWideToTrust = pois.length > 0 && maxSpan(box) > TRUST_SPAN_DEG;
+        if (capped || tooWideToTrust) {
+          if (maxSpan(box) / 2 >= MIN_SPAN_DEG) {
+            queue.push(...splitBox(box));
           } else {
-            truncated = true;
+            truncated = true; // tiny box still capped — accept partial coverage
           }
         }
       }
       if (truncated) {
         console.warn(
-          `[${this.source}] ${this.country}: coverage may be partial — request budget (${MAX_REQUESTS}), time budget (${MAX_SCRAPE_MS / 60000}min) or tile depth (${MAX_TILE_DEPTH}) reached`,
+          `[${this.source}] ${this.country}: coverage may be partial — request budget (${MAX_REQUESTS}), time budget (${MAX_SCRAPE_MS / 60000}min) or min tile size reached`,
         );
       }
     }
