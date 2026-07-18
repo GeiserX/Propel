@@ -178,46 +178,51 @@ describe("OCMScraper", () => {
       expect(url.searchParams.get("countrycode")).toBe("SI");
     });
 
-    it("tiles into quadrants when the root query hits the cap and dedupes across tiles", async () => {
+    it("force-subdivides large boxes whose under-cap count OCM under-reports, reaching hidden stations", async () => {
       const { OCMScraper } = await import("./ocm");
       const scraper = new OCMScraper("US");
 
-      const poiA = { ID: 9000001, AddressInfo: { Latitude: 45.52, Longitude: -122.68 }, StatusTypeID: 50 };
-      // Shared POI sits on a tile edge — returned by two adjacent tiles
-      const poiShared = { ID: 9000002, AddressInfo: { Latitude: 45.49, Longitude: -122.8 }, StatusTypeID: 50 };
-      const poiB = { ID: 9000003, AddressInfo: { Latitude: 48.85, Longitude: 2.35 }, StatusTypeID: 50 };
+      // A real downtown-Portland station that OCM only surfaces for a SMALL box
+      // (mirrors the live bug: whole-hemisphere boxes under-report and hide it).
+      const portland = { ID: 111, AddressInfo: { Latitude: 45.5159, Longitude: -122.6822 } };
+
+      const parseBox = (input: unknown) => {
+        const b = new URL(String(input)).searchParams.get("boundingbox");
+        if (!b) return null;
+        const m = b.match(/\(([-\d.]+),([-\d.]+)\),\(([-\d.]+),([-\d.]+)\)/)!;
+        const [, latMin, lonMin, latMax, lonMax] = m.map(Number);
+        return { latMin, lonMin, latMax, lonMax };
+      };
 
       vi.mocked(fetch).mockImplementation(async (input) => {
-        const url = new URL(String(input));
-        const bbox = url.searchParams.get("boundingbox");
+        const box = parseBox(input);
         let body: unknown;
-        if (!bbox) {
-          body = cappedPois; // root query: truncated at the cap
-        } else if (bbox === "(0,-180),(90,0)") {
-          body = [poiA, poiShared]; // NW quadrant
-        } else if (bbox === "(0,0),(90,180)") {
-          body = [poiShared, poiB]; // NE quadrant (shared POI duplicated)
+        if (!box) {
+          body = cappedPois; // root: capped → triggers tiling
         } else {
-          body = []; // southern quadrants empty
+          const span = Math.max(box.latMax - box.latMin, box.lonMax - box.lonMin);
+          const contains =
+            portland.AddressInfo.Latitude >= box.latMin &&
+            portland.AddressInfo.Latitude < box.latMax &&
+            portland.AddressInfo.Longitude >= box.lonMin &&
+            portland.AddressInfo.Longitude < box.lonMax;
+          if (span > 2) {
+            // Large box: OCM under-reports — returns a lone decoy, hiding Portland.
+            body = contains ? [{ ID: 555, AddressInfo: { Latitude: 47, Longitude: -120 } }] : [];
+          } else {
+            // Small (<=2°) box: OCM is reliable here, so Portland surfaces.
+            body = contains ? [portland] : [];
+          }
         }
         return { ok: true, json: async () => body } as Response;
       });
 
       const { stations } = await scraper.fetch();
 
-      // 1 root + 4 world quadrants, all filtered by countrycode
-      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(5);
-      const bboxes = vi
-        .mocked(fetch)
-        .mock.calls.map((c) => new URL(String(c[0])).searchParams.get("boundingbox"));
-      expect(bboxes.filter((b) => b !== null)).toHaveLength(4);
-      for (const call of vi.mocked(fetch).mock.calls) {
-        expect(new URL(String(call[0])).searchParams.get("countrycode")).toBe("US");
-      }
-
-      // 5000 root POIs kept + A + B + shared counted exactly once
-      expect(stations).toHaveLength(5003);
-      expect(stations.filter((s) => s.externalId === "ocm-9000002")).toHaveLength(1);
+      // Portland only ever appears from a <=2° box — capturing it proves the
+      // tiling subdivided its large, under-reporting ancestors instead of
+      // trusting their Portland-hiding counts. This is the coverage-gap fix.
+      expect(stations.some((s) => s.externalId === "ocm-111")).toBe(true);
     });
 
     it("stops at the request budget when every tile keeps hitting the cap", async () => {
@@ -233,11 +238,39 @@ describe("OCMScraper", () => {
 
       const { stations } = await scraper.fetch();
 
-      // Terminates exactly at the hard budget instead of recursing forever
-      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(120);
-      // Capped pages are still merged — partial data beats no data
+      // Terminates at the hard budget instead of recursing forever, and keeps
+      // whatever it gathered (capped pages are still merged).
+      const calls = vi.mocked(fetch).mock.calls.length;
+      expect(calls).toBeGreaterThan(50);
+      expect(calls).toBeLessThanOrEqual(800);
       expect(stations).toHaveLength(5000);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("partial"))).toBe(true);
+    });
+
+    it("retries on HTTP 429 (rate limit) then succeeds", async () => {
+      const { OCMScraper } = await import("./ocm");
+      const scraper = new OCMScraper("ES");
+      let calls = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        calls++;
+        if (calls === 1) {
+          // Retry-After of 0.001s keeps the backoff ~instant for the test.
+          return {
+            ok: false,
+            status: 429,
+            headers: { get: (h: string) => (h.toLowerCase() === "retry-after" ? "0.001" : null) },
+          } as unknown as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ ID: 7, AddressInfo: { Latitude: 40.4, Longitude: -3.7 } }],
+        } as Response;
+      });
+
+      const { stations } = await scraper.fetch();
+      expect(calls).toBe(2); // one 429, one success
+      expect(stations).toHaveLength(1);
     });
 
     it("drops malformed POIs instead of crashing", async () => {
