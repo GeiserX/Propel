@@ -31,7 +31,10 @@ const MIN_SPAN_DEG = 0.05; // ~5km floor: stop subdividing a still-capped box he
 // Hard request budget per country per scrape run (env-tunable for ops/tests).
 const rawMaxRequests = Number(process.env.PUMPERLY_OCM_MAX_REQUESTS ?? "800");
 const MAX_REQUESTS = Number.isFinite(rawMaxRequests) && rawMaxRequests > 0 ? rawMaxRequests : 800;
-const MAX_SCRAPE_MS = 15 * 60 * 1000; // total tiling time budget per run
+// Per-country budget on ACTIVE fetch time (time actually spent requesting OCM,
+// excluding time blocked on the shared concurrency gate below). Wall-clock
+// would wrongly penalise a country for waiting its turn under serialisation.
+const MAX_SCRAPE_MS = 15 * 60 * 1000;
 const MAX_RETRIES_429 = 4; // retries on HTTP 429 (rate limit) before giving up
 // Politeness delay between tile requests (ms); tests set it to 0. NaN or
 // negative values (typos) fall back to the default instead of silently
@@ -40,6 +43,34 @@ const rawTileDelay = Number(process.env.PUMPERLY_OCM_TILE_DELAY_MS ?? "600");
 const TILE_DELAY_MS = Number.isFinite(rawTileDelay) && rawTileDelay >= 0 ? rawTileDelay : 600;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Global concurrency gate shared across ALL OCM scrapers (every country uses
+// this module). Every big country tiling at once floods OCM's shared rate
+// limit and triggers an escalating 429 storm, so serialise OCM requests by
+// default (concurrency 1). Tunable for ops. During a request's 429 backoff the
+// slot is held on purpose — that pauses all OCM traffic and lets the shared
+// limit recover instead of firing the next country straight into another 429.
+const rawConcurrency = Number(process.env.PUMPERLY_OCM_MAX_CONCURRENCY ?? "1");
+const OCM_MAX_CONCURRENCY =
+  Number.isFinite(rawConcurrency) && rawConcurrency >= 1 ? Math.floor(rawConcurrency) : 1;
+
+let ocmActive = 0;
+const ocmWaiters: Array<() => void> = [];
+function acquireOcmSlot(): Promise<void> {
+  if (ocmActive < OCM_MAX_CONCURRENCY) {
+    ocmActive++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => ocmWaiters.push(resolve));
+}
+function releaseOcmSlot(): void {
+  const next = ocmWaiters.shift();
+  if (next) {
+    next(); // hand the slot straight to the next waiter (keeps ocmActive steady)
+  } else {
+    ocmActive--;
+  }
+}
 
 interface BBox {
   latMin: number;
@@ -93,13 +124,30 @@ type OCMPOI = z.infer<typeof OCMPOISchema>;
 export class OCMScraper extends BaseScraper {
   readonly country: string;
   readonly source = "ocm";
+  // Active fetch time for the current run (excludes time blocked on the gate),
+  // measured against MAX_SCRAPE_MS. Reset at the start of each fetch().
+  private activeMs = 0;
 
   constructor(country: string) {
     super();
     this.country = country;
   }
 
+  // Gate every OCM request through the shared concurrency limiter and account
+  // its active time (used by the per-country time budget). The slot is held for
+  // the whole call, including any 429 backoff, so backpressure is global.
   private async fetchPage(bbox?: BBox): Promise<OCMPOI[]> {
+    await acquireOcmSlot();
+    const activeStart = Date.now();
+    try {
+      return await this.fetchPageUngated(bbox);
+    } finally {
+      this.activeMs += Date.now() - activeStart;
+      releaseOcmSlot();
+    }
+  }
+
+  private async fetchPageUngated(bbox?: BBox): Promise<OCMPOI[]> {
     const url = new URL(BASE_URL);
     url.searchParams.set("output", "json");
     url.searchParams.set("countrycode", this.country);
@@ -177,7 +225,7 @@ export class OCMScraper extends BaseScraper {
       return { stations: [], prices: [] };
     }
 
-    const startedAt = Date.now();
+    this.activeMs = 0; // reset the active-time budget for this run
     let requests = 1;
     const rootPois = await this.fetchPage();
     const byId = new Map<number, OCMPOI>();
@@ -194,9 +242,10 @@ export class OCMScraper extends BaseScraper {
       const queue: BBox[] = splitBox(WORLD);
       let truncated = false;
       while (queue.length > 0) {
-        // Bound by request count AND elapsed time — a large budget with slow
-        // 120s responses would otherwise stall a scrape cycle for hours.
-        if (requests >= MAX_REQUESTS || Date.now() - startedAt > MAX_SCRAPE_MS) {
+        // Bound by request count AND active fetch time — a large budget with
+        // slow 120s responses would otherwise stall a scrape cycle for hours.
+        // Active time (not wall-clock) so serialisation waits don't count.
+        if (requests >= MAX_REQUESTS || this.activeMs > MAX_SCRAPE_MS) {
           truncated = true;
           break;
         }
