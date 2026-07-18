@@ -307,5 +307,31 @@ describe("OCMScraper", () => {
 
       await expect(scraper.fetch()).rejects.toThrow("expected a JSON array");
     });
+
+    it("serialises OCM requests across scrapers via the global concurrency gate", async () => {
+      // Default concurrency is 1 — two countries scraping at once must not have
+      // overlapping OCM requests (that concurrency is what triggers 429 storms).
+      vi.stubEnv("PUMPERLY_OCM_MAX_CONCURRENCY", "1");
+      const { OCMScraper } = await import("./ocm");
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      vi.mocked(fetch).mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 5)); // hold to expose any overlap
+        inFlight--;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ ID: 1, AddressInfo: { Latitude: 40, Longitude: -3 } }],
+        } as Response;
+      });
+
+      // Both root queries are under the cap (no tiling) — pure gate check.
+      await Promise.all([new OCMScraper("ES").fetch(), new OCMScraper("FR").fetch()]);
+
+      expect(maxInFlight).toBe(1);
+    });
   });
 });
