@@ -27,7 +27,7 @@
     "@prisma/client": "^7.8.0",
     "dotenv": "^17.4.2",
     "json5": "^2.2.3",
-    "maplibre-gl": "^5.24.0",
+    "maplibre-gl": "^6.0.0",
     "next": "^16.2.10",
     "prisma": "^7.9.0",
     "react": "^19.2.7",
