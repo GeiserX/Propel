@@ -1,3 +1,5 @@
+import type { LineString } from "geojson";
+
 const VALHALLA_URL = process.env.VALHALLA_URL;
 
 // ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ export const __semaphore = {
 };
 
 export interface ValhallaRoute {
-  geometry: GeoJSON.LineString;
+  geometry: LineString;
   distance: number; // km
   duration: number; // seconds
   bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]

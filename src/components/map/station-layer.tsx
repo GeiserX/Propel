@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Source, Layer, useMap } from "react-map-gl/maplibre";
 import type { MapLayerMouseEvent } from "react-map-gl/maplibre";
-import type { GeoJSONSource, ExpressionSpecification } from "maplibre-gl";
+import type { Point } from "geojson";
+import type { ExpressionSpecification, GeoJSONSource, MapGeoJSONFeature, MapMouseEvent } from "maplibre-gl";
 import type { StationsGeoJSONCollection } from "@/types/station";
 import { StationPopup } from "./station-popup";
 import { PRICE_COLORS } from "./price-legend";
@@ -110,7 +111,7 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
         if (!source) return;
         const clusterId = feature.properties.cluster_id as number;
         source.getClusterExpansionZoom(clusterId).then((zoom) => {
-          const geometry = feature.geometry as GeoJSON.Point;
+          const geometry = feature.geometry as Point;
           mapRef.easeTo({
             center: [geometry.coordinates[0], geometry.coordinates[1]],
             zoom: zoom + 1,
@@ -130,7 +131,7 @@ export function StationLayer({ stations, onPriceRange, cluster = true, selectedS
     if (!mapRef) return;
     const map = mapRef.getMap();
 
-    const handler = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    const handler = (e: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
       handleClick(e as MapLayerMouseEvent);
     };
 

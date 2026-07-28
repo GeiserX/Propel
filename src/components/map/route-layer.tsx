@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo } from "react";
 import { Source, Layer, useMap } from "react-map-gl/maplibre";
-import type { ExpressionSpecification } from "maplibre-gl";
+import type { FeatureCollection, LineString } from "geojson";
+import type { ExpressionSpecification, MapGeoJSONFeature, MapMouseEvent } from "maplibre-gl";
 
 export interface Route {
-  geometry: GeoJSON.LineString;
+  geometry: LineString;
   distance: number;
   duration: number;
   bbox: [number, number, number, number];
@@ -25,7 +26,7 @@ interface RouteLayerProps {
 export function RouteLayer({ routes, primaryIndex, onSelectRoute, beforeLayerId = "unclustered-point" }: RouteLayerProps) {
   const { current: mapRef } = useMap();
 
-  const geojson: GeoJSON.FeatureCollection<GeoJSON.LineString> = useMemo(() => ({
+  const geojson: FeatureCollection<LineString> = useMemo(() => ({
     type: "FeatureCollection",
     features: routes.map((r, i) => ({
       type: "Feature" as const,
@@ -55,7 +56,7 @@ export function RouteLayer({ routes, primaryIndex, onSelectRoute, beforeLayerId 
     if (!mapRef || !onSelectRoute) return;
     const map = mapRef.getMap();
 
-    const handler = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    const handler = (e: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
       const feature = e.features?.[0];
       if (!feature) return;
       const idx = feature.properties?.routeIndex as number;
