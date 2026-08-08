@@ -69,6 +69,7 @@
     "sharp": "^0.35.3",
     "esbuild": "^0.28.1",
     "js-yaml": "^4.3.1",
+    "nanoid": "^3.3.17",
     "@babel/core": "^7.29.6",
     "jsdom": {
       "undici": "^7.28.0"
