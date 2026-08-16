@@ -123,6 +123,13 @@ export const OG_TRANSLATIONS: Record<Locale, OgStrings> = {
     imageSubtitle: "Edullisimmat polttoaineet ja EV-lataus reitilläsi",
     ogLocale: "fi_FI",
   },
+  ca: {
+    title: "Pumperly - Planificador de Rutes Energètiques",
+    description:
+      "Trobeu les benzineres i els punts de càrrega més barats a la vostra ruta. Preus en temps real a 36 països.",
+    imageSubtitle: "Benzineres i càrrega EV més barates a la vostra ruta",
+    ogLocale: "ca_ES",
+  },
 };
 
 export const SUPPORTED_LOCALES = Object.keys(OG_TRANSLATIONS) as Locale[];
