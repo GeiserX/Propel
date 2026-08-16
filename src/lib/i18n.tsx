@@ -21,7 +21,7 @@ export const LOCALES: { code: Locale; label: string; flag: string }[] = [
   { code: "no", label: "Norsk", flag: "NO" },
   { code: "sr", label: "Srpski", flag: "RS" },
   { code: "fi", label: "Suomi", flag: "FI" },
-  { code: "ca", label: "Suomi", flag: "EU" },
+  { code: "ca", label: "Català", flag: "EU" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1088,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "stations.sortDetour": "Desviament",
     "stations.sortKm": "km ruta",
     "stations.loading": "S'estan cercant estacions...",
-    "stations.maxStops": "S'ha arribat al màximo d'aturades",
+    "stations.maxStops": "S'ha arribat al màxim d'aturades",
     "fuel.diesel": "Dièsel",
     "fuel.gasoline": "Gasolina",
     "fuel.gas": "Gas",
@@ -1097,7 +1097,7 @@ const translations: Record<Locale, Record<string, string>> = {
     "fuel.other": "Altres",
     "geo.myLocation": "La meva ubicació",
     "geo.center": "Centra en la meva ubicació",
-    "geo.denied": "S'ha denegat la ubicació denegada",
+    "geo.denied": "S'ha denegat l'accés a la ubicació",
     "filter.maxPrice": "Preu máx.",
     "filter.clear": "Neteja",
     "popup.updatedNow": "Actualitzat ara",
