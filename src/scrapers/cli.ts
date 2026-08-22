@@ -38,6 +38,7 @@ import { AustraliaNSWScraper } from "./australia-nsw";
 import { ArgentinaScraper } from "./argentina";
 import { MexicoScraper } from "./mexico";
 import { OCMScraper } from "./ocm";
+import { REVEScraper } from "./reve";
 
 // ---------------------------------------------------------------------------
 // Scraper CLI
@@ -128,6 +129,8 @@ const SCRAPERS: Record<string, Array<() => BaseScraper>> = {
   EV_MX: [() => new OCMScraper("MX")],
   // US has no national fuel-price API — EV-only coverage via OCM (#85)
   EV_US: [() => new OCMScraper("US")],
+  // Spain's official EV registry — supersedes EV_ES when a key is set (#121)
+  EV_ES_REVE: [() => new REVEScraper()],
 };
 
 function usage(): never {

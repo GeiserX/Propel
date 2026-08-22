@@ -1,0 +1,91 @@
+name: REVE API key renewal reminder
+
+# The Mapa REVE API key that feeds Spain's EV charging data expires once a year.
+# When it does, the REVE scraper starts failing and Spanish charger data quietly
+# goes stale — nothing else breaks, so it would go unnoticed for a long time.
+#
+# This opens an issue a week before expiry with the renewal steps in it.
+#
+# Renewing? Change BOTH the `schedule` cron below and KEY_EXPIRY to the new
+# date, so next year's reminder still lands a week early.
+#
+# Current key expires: 2027-08-21  →  reminder fires 2027-08-14.
+
+on:
+  schedule:
+    # 08:00 UTC on 14 August, every year (a week before the 21 August expiry).
+    - cron: "0 8 14 8 *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  KEY_EXPIRY: "2027-08-21"
+
+jobs:
+  remind:
+    name: Open renewal issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open (or update) the renewal issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          TITLE="Renew the Mapa REVE API key (expires ${KEY_EXPIRY})"
+
+          # Don't stack a new issue on top of last year's if one is still open.
+          EXISTING=$(gh issue list --state open --search '"Renew the Mapa REVE API key" in:title' \
+            --json number --jq '.[0].number // empty')
+
+          BODY=$(cat <<'EOF'
+          The Mapa REVE API key behind Spain's EV charging data expires on __EXPIRY__.
+
+          Nothing breaks loudly when it lapses: the scraper logs an HTTP error and
+          Spanish charger data simply stops being refreshed. Renew before the date.
+
+          ## How to renew
+
+          1. Request a new key at https://www.mapareve.es/api-contacto — it is free.
+             Say the use is non-commercial and name Pumperly. Approval arrives by
+             email, usually within a few days, with the key and its new expiry.
+          2. Update the running deployment's `PUMPERLY_REVE_API_KEY` and redeploy.
+             The key is an environment variable — it is never committed.
+          3. Confirm it works. A single request is enough:
+
+             ```
+             curl -sS -o /dev/null -w '%{http_code}\n' \
+               -H "x-api-key: $NEW_KEY" \
+               'https://www.mapareve.es/api/external/v1/locations?limit=1&page=1'
+             ```
+
+             `200` means good, `401`/`403` means the key is wrong.
+          4. Update `.github/workflows/reve-key-renewal.yml` — both the `schedule`
+             cron and `KEY_EXPIRY` — to a week before the new expiry date, so this
+             reminder keeps working.
+          5. Close this issue.
+
+          ## Worth knowing
+
+          - The API allows **5 requests per hour**, 100 locations per page. A full
+            reload of the ~14.5k-location registry takes about 30 hours, so a lapsed
+            key is not instantly recoverable — the data refills gradually.
+          - Terms of use: non-commercial only, Red Eléctrica de España must be
+            credited as the source, and the data must not be altered or
+            misrepresented. The credit lives in the in-app legal modal.
+
+          _Opened automatically by `.github/workflows/reve-key-renewal.yml`._
+          EOF
+          )
+          BODY=${BODY//__EXPIRY__/$KEY_EXPIRY}
+
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING is already open — adding a comment instead."
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
