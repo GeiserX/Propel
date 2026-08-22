@@ -39,6 +39,7 @@ import { ArgentinaScraper } from "./argentina";
 import { MexicoScraper } from "./mexico";
 import { OCMScraper } from "./ocm";
 import { REVEScraper } from "./reve";
+import { resolveSpainEvSource } from "./spain-ev-source";
 
 // ---------------------------------------------------------------------------
 // Scraper CLI
@@ -153,9 +154,11 @@ function parseArgs(argv: string[]): { countries: string[] } {
     usage();
   }
 
+  // `all` must not run both Spanish EV sources. Naming EV_ES explicitly still
+  // works — the CLI is a manual override, and asking for it by name means it.
   const countries =
     countryArg === "ALL"
-      ? Object.keys(SCRAPERS)
+      ? resolveSpainEvSource(Object.keys(SCRAPERS))
       : countryArg.split(",").map((c) => c.trim().toUpperCase());
 
   // Validate
