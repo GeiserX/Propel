@@ -99,7 +99,7 @@ Pumperly combines route planning with real-time fuel prices and EV charging stat
 | [Open Charge Map](https://openchargemap.org) | All supported countries + United States (EV-only) | ODbL |
 | [Mapa REVE](https://www.mapareve.es) (Red Eléctrica de España) | Spain — official operator-reported registry | Non-commercial, attribution required |
 
-Spain uses Mapa REVE when `PUMPERLY_REVE_API_KEY` is set: it is the registry every Spanish charge point operator files into, so it is authoritative where Open Charge Map is crowdsourced. It then replaces the Open Charge Map rows for Spain rather than adding to them.
+Spain uses Mapa REVE when `PUMPERLY_REVE_API_KEY` is set: it is the registry every Spanish charge point operator files into, so it is authoritative where Open Charge Map is crowdsourced. The two overlap heavily, so Open Charge Map stops being scraped for Spain immediately, its existing Spanish rows stay visible while REVE backfills, and they are deleted once REVE reaches 95% of the registry. Expect duplicate Spanish pins until then.
 
 ### Map & routing
 
@@ -424,7 +424,7 @@ Some data sources require API keys (all free):
 |---|---|---|
 | `TANKERKOENIG_API_KEY` | Germany fuel prices | Register at [creativecommons.tankerkoenig.de](https://creativecommons.tankerkoenig.de) |
 | `PUMPERLY_OCM_API_KEY` | EV charging stations | Register at [openchargemap.org](https://openchargemap.org), go to My Profile > My API Keys |
-| `PUMPERLY_REVE_API_KEY` | Spain EV chargers (official registry) | Request at [mapareve.es/api-contacto](https://www.mapareve.es/api-contacto). Keys expire after about a year. The API allows 5 requests/hour, so the first full load takes ~30 hours and fills in the background. |
+| `PUMPERLY_REVE_API_KEY` | Spain EV chargers (official registry) | Request at [mapareve.es/api-contacto](https://www.mapareve.es/api-contacto). Keys expire after about a year. The API allows 5 requests/hour, so the first full load takes about 37 hours at the default 4 pages per run, and fills in the background. |
 | `FUELPRICES_DK_API_KEY` | Denmark fuel prices | Contact [fuelprices.dk](https://fuelprices.dk) |
 
 Most countries work without any API key — they use open government data.

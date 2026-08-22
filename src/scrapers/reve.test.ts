@@ -132,6 +132,27 @@ describe("REVEScraper", () => {
     expect(stations[0].externalId).toBe("reve-a3d9dfbb-5f99-467c-a903-8bd9ec1af2d1");
   });
 
+  it("never issues more requests per run than the API allows", async () => {
+    // 6 pages/run would spend the sixth request on a guaranteed 429.
+    vi.stubEnv("PUMPERLY_REVE_PAGES_PER_RUN", "99");
+    const { REVEScraper } = await import("./reve");
+    vi.mocked(fetch).mockResolvedValue(okResponse([location()], PAGE_HEADERS));
+
+    await new REVEScraper().fetch();
+
+    expect(vi.mocked(fetch).mock.calls.length).toBe(5);
+  });
+
+  it("falls back to the default page budget when the override is nonsense", async () => {
+    vi.stubEnv("PUMPERLY_REVE_PAGES_PER_RUN", "not-a-number");
+    const { REVEScraper } = await import("./reve");
+    vi.mocked(fetch).mockResolvedValue(okResponse([location()], PAGE_HEADERS));
+
+    await new REVEScraper().fetch();
+
+    expect(vi.mocked(fetch).mock.calls.length).toBe(4);
+  });
+
   it("drops locations with unusable coordinates instead of throwing", async () => {
     vi.stubEnv("PUMPERLY_REVE_PAGES_PER_RUN", "1");
     const { REVEScraper } = await import("./reve");

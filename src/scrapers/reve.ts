@@ -15,7 +15,8 @@ import { BaseScraper, type RawFuelPrice, type RawStation, type ScraperResult } f
 //
 // THE CONSTRAINT THAT SHAPES THIS WHOLE FILE: the API allows **5 requests per
 // hour** and caps `limit` at 100, so the ceiling is 500 locations/hour. The
-// registry holds ~14.5k locations, so one complete pass takes ~30 hours. There
+// registry holds ~14.5k locations across ~146 pages, so a complete pass takes
+// ~30 hours at that ceiling, and ~37 hours at the default 4 pages/run. There
 // is no bulk export and no way around it — a full sync in a single run is
 // impossible, not merely slow.
 //
@@ -40,12 +41,19 @@ const BASE_URL = "https://www.mapareve.es/api/external/v1/locations";
 const API_KEY = process.env.PUMPERLY_REVE_API_KEY ?? "";
 const PAGE_LIMIT = 100; // API maximum — do not raise, larger values are ignored
 
-// Pages fetched per run. The hourly budget is 5; the default of 4 leaves one
-// request spare for a manual `scraper:run` or a probe without tripping the
-// limit. Runs are scheduled hourly (see instrumentation.ts).
+// Hard ceiling published by the API. Config may tune below it but never above
+// it: a run that asks for more than this is guaranteed to burn the surplus on
+// HTTP 429s, which is both pointless and rude to a free public service.
+const RATE_LIMIT_PER_HOUR = 5;
+
+// Pages fetched per run. The default of 4 leaves one request spare for a manual
+// `scraper:run` or a probe without tripping the limit. Runs are scheduled hourly
+// (see instrumentation.ts).
 const rawPagesPerRun = Number(process.env.PUMPERLY_REVE_PAGES_PER_RUN ?? "4");
 const PAGES_PER_RUN =
-  Number.isFinite(rawPagesPerRun) && rawPagesPerRun >= 1 ? Math.floor(rawPagesPerRun) : 4;
+  Number.isFinite(rawPagesPerRun) && rawPagesPerRun >= 1
+    ? Math.min(Math.floor(rawPagesPerRun), RATE_LIMIT_PER_HOUR)
+    : 4;
 
 // Fraction of the registry that must be stored locally before the OpenChargeMap
 // rows this data replaces are retired (see retireSupersededOcmRows).
