@@ -48,7 +48,7 @@ Pumperly combines route planning with real-time fuel prices and EV charging stat
 
 - **Route planning** — Geocoding via [Photon](https://github.com/komoot/photon), routing via [Valhalla](https://github.com/valhalla/valhalla), with alternative routes
 - **Real-time fuel prices** — From government open data APIs and community sources
-- **EV charging stations** — Via [Open Charge Map](https://openchargemap.org) across all supported countries
+- **EV charging stations** — Via [Open Charge Map](https://openchargemap.org) across all supported countries, and the official [Mapa REVE](https://www.mapareve.es) registry in Spain
 - **Detour calculation** — Each station shows estimated detour time from your route
 - **"Cheapest within N min"** — Slider filters stations by maximum detour, highlights the best deal
 - **Corridor station list** — Sorted by position along route, with price deltas vs average
@@ -97,6 +97,9 @@ Pumperly combines route planning with real-time fuel prices and EV charging stat
 | Source | Coverage | License |
 |---|---|---|
 | [Open Charge Map](https://openchargemap.org) | All supported countries + United States (EV-only) | ODbL |
+| [Mapa REVE](https://www.mapareve.es) (Red Eléctrica de España) | Spain — official operator-reported registry | Non-commercial, attribution required |
+
+Spain uses Mapa REVE when `PUMPERLY_REVE_API_KEY` is set: it is the registry every Spanish charge point operator files into, so it is authoritative where Open Charge Map is crowdsourced. It then replaces the Open Charge Map rows for Spain rather than adding to them.
 
 ### Map & routing
 
@@ -381,6 +384,7 @@ services:
       # API keys — get your own:
       # TANKERKOENIG_API_KEY: ""      # https://creativecommons.tankerkoenig.de
       # PUMPERLY_OCM_API_KEY: ""      # https://openchargemap.org (free, for EV data)
+      # PUMPERLY_REVE_API_KEY: ""     # https://www.mapareve.es/api-contacto (free, Spain EV)
       # FUELPRICES_DK_API_KEY: ""     # Denmark fuel prices
     ports:
       - "3000:3000"
@@ -420,6 +424,7 @@ Some data sources require API keys (all free):
 |---|---|---|
 | `TANKERKOENIG_API_KEY` | Germany fuel prices | Register at [creativecommons.tankerkoenig.de](https://creativecommons.tankerkoenig.de) |
 | `PUMPERLY_OCM_API_KEY` | EV charging stations | Register at [openchargemap.org](https://openchargemap.org), go to My Profile > My API Keys |
+| `PUMPERLY_REVE_API_KEY` | Spain EV chargers (official registry) | Request at [mapareve.es/api-contacto](https://www.mapareve.es/api-contacto). Keys expire after about a year. The API allows 5 requests/hour, so the first full load takes ~30 hours and fills in the background. |
 | `FUELPRICES_DK_API_KEY` | Denmark fuel prices | Contact [fuelprices.dk](https://fuelprices.dk) |
 
 Most countries work without any API key — they use open government data.

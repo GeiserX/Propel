@@ -49,6 +49,9 @@ const DEFAULT_INTERVALS: Record<string, number> = {
   EV_RS: 24, EV_FI: 24, EV_EE: 24, EV_LV: 24, EV_LT: 24, EV_BA: 24,
   EV_MK: 24, EV_TR: 24, EV_MD: 24, EV_AU: 24, EV_AR: 24, EV_MX: 24,
   EV_US: 24,
+  // Spain Mapa REVE — the API allows only 5 requests/hour, so this crawls a
+  // few pages at a time and must run hourly to get through the registry.
+  EV_ES_REVE: 1,
 };
 
 export async function register() {
@@ -100,6 +103,7 @@ export async function register() {
   const { ArgentinaScraper } = await import("./scrapers/argentina");
   const { MexicoScraper } = await import("./scrapers/mexico");
   const { OCMScraper } = await import("./scrapers/ocm");
+  const { REVEScraper } = await import("./scrapers/reve");
   const { StaticScraper } = await import("./scrapers/static");
   const { STATIC_DATASETS } = await import("./scrapers/data");
 
@@ -180,6 +184,8 @@ export async function register() {
     EV_MX: () => new OCMScraper("MX"),
     // US has no national fuel-price API — EV-only coverage via OCM (#85)
     EV_US: () => new OCMScraper("US"),
+    // Spain's official EV registry — supersedes EV_ES when a key is set (#121)
+    EV_ES_REVE: () => new REVEScraper(),
   };
 
   // Register community-contributed static datasets (see scrapers/data/README.md).
@@ -221,6 +227,21 @@ export async function register() {
     countries = evEnabled
       ? Object.keys(scraperFactories)
       : Object.keys(scraperFactories).filter((c) => !c.startsWith("EV_"));
+  }
+
+  // Spain: the official Mapa REVE registry supersedes OpenChargeMap whenever a
+  // key is configured. They must never both run — 92% of REVE locations sit
+  // within 50m of an existing OpenChargeMap row, so the map would double-pin
+  // every Spanish charger. REVE also retires the rows it replaces once its
+  // backfill is complete (see scrapers/reve.ts).
+  if (process.env.PUMPERLY_REVE_API_KEY && countries.includes("EV_ES")) {
+    countries = countries.filter((c) => c !== "EV_ES");
+    if (!countries.includes("EV_ES_REVE")) countries.push("EV_ES_REVE");
+    console.log(
+      "[scraper] Spain EV: using Mapa REVE (official registry) instead of OpenChargeMap",
+    );
+  } else {
+    countries = countries.filter((c) => c !== "EV_ES_REVE");
   }
 
   // Resolve per-country intervals

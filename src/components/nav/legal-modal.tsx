@@ -158,6 +158,7 @@ function SourcesContent() {
       <h3>EV charging data</h3>
       <ul>
         <li><strong>Open Charge Map</strong> &mdash; EV charging station locations across all supported countries. Community-maintained, Open Data Commons Open Database License (ODbL). <a href="https://openchargemap.org" target="_blank" rel="noopener noreferrer">openchargemap.org</a></li>
+        <li><strong>Mapa REVE</strong> &mdash; EV charging station locations in Spain. Source: Red El&eacute;ctrica de Espa&ntilde;a, S.A.U. Used non-commercially and reproduced without alteration. <a href="https://www.mapareve.es" target="_blank" rel="noopener noreferrer">mapareve.es</a></li>
       </ul>
 
       <h3>Map and routing</h3>
