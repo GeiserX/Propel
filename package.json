@@ -1,6 +1,6 @@
 {
   "name": "pumperly",
-  "version": "1.12.2",
+  "version": "1.12.3",
   "description": "Open-source energy route planner for fuel and electric vehicles. Self-hostable.",
   "private": true,
   "scripts": {
