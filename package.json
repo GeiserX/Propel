@@ -55,7 +55,7 @@
     "tailwindcss": "^4.2.1",
     "tsx": "^4.23.12",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^5.0.0"
   },
   "overrides": {
     "hono": "^4.12.31",
